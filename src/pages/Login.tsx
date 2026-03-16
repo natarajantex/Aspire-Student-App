@@ -166,7 +166,7 @@ export default function Login() {
           )}
           {activeTab === 'parent' && (
             <div className="mt-6 text-center text-xs text-gray-500">
-              <p>Demo Parent: 919876543210 / password123</p>
+              <p>Demo Parent: 919876543210 / 543210</p>
             </div>
           )}
         </div>

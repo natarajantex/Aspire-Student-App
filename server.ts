@@ -185,9 +185,9 @@ const seedData = () => {
   const parentCount = db.prepare('SELECT COUNT(*) as count FROM Parents').get() as { count: number };
   if (parentCount.count === 0) {
     const insertParent = db.prepare('INSERT INTO Parents (ParentName, MobileNumber, Password, StudentID, Status) VALUES (?, ?, ?, ?, ?)');
-    insertParent.run('Ramesh', '919876543210', 'password123', 'ST001', 'Active');
-    insertParent.run('Suresh', '919876543211', 'password123', 'ST002', 'Active');
-    insertParent.run('Mahesh', '919876543212', 'password123', 'ST003', 'Active');
+    insertParent.run('Ramesh', '919876543210', '543210', 'ST001', 'Active');
+    insertParent.run('Suresh', '919876543211', '543211', 'ST002', 'Active');
+    insertParent.run('Mahesh', '919876543212', '543212', 'ST003', 'Active');
   }
 };
 
@@ -212,13 +212,16 @@ async function startServer() {
     let parent = null;
     if (cleanMobile.length >= 10) {
       const last10 = cleanMobile.slice(-10);
-      parent = db.prepare('SELECT * FROM Parents WHERE MobileNumber LIKE ? AND Password = ? AND Status = ?').get(`%${last10}`, password, 'Active') as any;
+      parent = db.prepare('SELECT * FROM Parents WHERE MobileNumber LIKE ? AND Status = ?').get(`%${last10}`, 'Active') as any;
     } else {
-      parent = db.prepare('SELECT * FROM Parents WHERE MobileNumber = ? AND Password = ? AND Status = ?').get(cleanMobile, password, 'Active') as any;
+      parent = db.prepare('SELECT * FROM Parents WHERE MobileNumber = ? AND Status = ?').get(cleanMobile, 'Active') as any;
     }
     
     if (parent) {
-      return res.json({ token: 'dummy-parent-token', user: { id: parent.ParentID, name: parent.ParentName, role: 'parent', studentId: parent.StudentID } });
+      const expectedPassword = parent.MobileNumber.replace(/\D/g, '').slice(-6);
+      if (password === expectedPassword) {
+        return res.json({ token: 'dummy-parent-token', user: { id: parent.ParentID, name: parent.ParentName, role: 'parent', studentId: parent.StudentID } });
+      }
     }
     
     res.status(401).json({ error: 'Invalid credentials or account disabled' });
@@ -232,14 +235,17 @@ async function startServer() {
     let parent = null;
     if (cleanMobile.length >= 10) {
       const last10 = cleanMobile.slice(-10);
-      parent = db.prepare('SELECT * FROM Parents WHERE MobileNumber LIKE ? AND Password = ? AND Status = ?').get(`%${last10}`, password, 'Active') as any;
+      parent = db.prepare('SELECT * FROM Parents WHERE MobileNumber LIKE ? AND Status = ?').get(`%${last10}`, 'Active') as any;
     } else {
-      parent = db.prepare('SELECT * FROM Parents WHERE MobileNumber = ? AND Password = ? AND Status = ?').get(cleanMobile, password, 'Active') as any;
+      parent = db.prepare('SELECT * FROM Parents WHERE MobileNumber = ? AND Status = ?').get(cleanMobile, 'Active') as any;
     }
     
     console.log('Found parent:', parent);
     if (parent) {
-      return res.json({ token: 'dummy-parent-token', user: { id: parent.ParentID, name: parent.ParentName, role: 'parent', studentId: parent.StudentID } });
+      const expectedPassword = parent.MobileNumber.replace(/\D/g, '').slice(-6);
+      if (password === expectedPassword) {
+        return res.json({ token: 'dummy-parent-token', user: { id: parent.ParentID, name: parent.ParentName, role: 'parent', studentId: parent.StudentID } });
+      }
     }
     
     // Fallback: check if they accidentally used the parent login for a staff account

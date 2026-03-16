@@ -100,11 +100,11 @@ export default function Settings() {
 
 function ParentsManager({ data, onRefresh }: { data: any[], onRefresh: () => void }) {
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [formData, setFormData] = useState({ password: '', status: 'Active' });
+  const [formData, setFormData] = useState({ status: 'Active' });
 
   const handleEdit = (item: any) => {
     setEditingId(item.ParentID);
-    setFormData({ password: item.Password, status: item.Status });
+    setFormData({ status: item.Status });
   };
 
   const handleSave = async (id: number, originalData: any) => {
@@ -116,7 +116,7 @@ function ParentsManager({ data, onRefresh }: { data: any[], onRefresh: () => voi
           parentName: originalData.ParentName,
           mobileNumber: originalData.MobileNumber,
           studentId: originalData.StudentID,
-          password: formData.password,
+          password: originalData.Password,
           status: formData.status
         })
       });
@@ -134,14 +134,7 @@ function ParentsManager({ data, onRefresh }: { data: any[], onRefresh: () => voi
         {data.map((item) => (
           <div key={item.ParentID} className="p-3 border border-gray-100 rounded-xl bg-gray-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             {editingId === item.ParentID ? (
-              <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <input
-                  type="text"
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
-                  placeholder="Password"
-                />
+              <div className="flex-1 grid grid-cols-1 sm:grid-cols-1 gap-2">
                 <select
                   value={formData.status}
                   onChange={(e) => setFormData({ ...formData, status: e.target.value })}
@@ -150,7 +143,7 @@ function ParentsManager({ data, onRefresh }: { data: any[], onRefresh: () => voi
                   <option value="Active">Active</option>
                   <option value="Disabled">Disabled</option>
                 </select>
-                <div className="flex space-x-2 sm:col-span-2">
+                <div className="flex space-x-2">
                   <button onClick={() => handleSave(item.ParentID, item)} className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg">
                     <Save className="w-4 h-4" />
                   </button>
