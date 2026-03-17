@@ -1,0 +1,17 @@
+{
+  "short_name": "Aspire",
+  "name": "Aspire Academics",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml"
+    }
+  ],
+  "start_url": "/staff",
+  "background_color": "#ffffff",
+  "display": "standalone",
+  "scope": "/",
+  "theme_color": "#4f46e5",
+  "description": "Aspire Academics Management Portal"
+}

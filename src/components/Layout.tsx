@@ -9,8 +9,13 @@ export default function Layout() {
   const location = useLocation();
 
   const handleLogout = () => {
+    const currentRole = role;
     logout();
-    navigate('/login');
+    if (currentRole === 'admin') {
+      navigate('/staff');
+    } else {
+      navigate('/login');
+    }
   };
 
   const staffNavItems = [

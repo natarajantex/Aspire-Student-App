@@ -12,16 +12,19 @@ import Tests from './pages/Tests';
 import Reports from './pages/Reports';
 import StudentProfile from './pages/StudentProfile';
 import Settings from './pages/Settings';
-import Login from './pages/Login';
+import ParentLogin from './pages/ParentLogin';
+import StaffLogin from './pages/StaffLogin';
 import ProtectedRoute from './components/ProtectedRoute';
-import { AuthProvider } from './context/AuthContext';
+import { AuthContext, AuthProvider } from './context/AuthContext';
 
 export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          <Route path="/login" element={<Login />} />
+          <Route path="/login" element={<ParentLogin />} />
+          <Route path="/staff" element={<StaffLogin />} />
+          <Route path="/admin" element={<StaffLogin />} />
           
           <Route element={<ProtectedRoute />}>
             <Route path="/" element={<Layout />}>
