@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: aspire-academics
+    env: node
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: SQLITE_DB_PATH
+        value: /data/aspire.db
+    disk:
+      name: database
+      mountPath: /data
+      sizeGB: 1

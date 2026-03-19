@@ -3,10 +3,19 @@ import { createServer as createViteServer } from 'vite';
 import Database from 'better-sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
+import { createClient } from '@insforge/sdk';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const db = new Database(process.env.SQLITE_DB_PATH || 'aspire.db');
 
-const db = new Database('aspire.db');
+const insforge = createClient({
+  baseUrl: process.env.VITE_INSFORGE_URL || '',
+  anonKey: process.env.VITE_INSFORGE_ANON_KEY || ''
+});
 
 // Initialize Database Schema
 db.exec(`
@@ -195,7 +204,7 @@ seedData();
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT || 3000;
 
   app.use(express.json());
 
@@ -377,7 +386,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/students', (req, res) => {
+  app.post('/api/students', async (req, res) => {
     const { name, academicYear, classId, parentName, parentWhatsApp, enrollmentDate, subjects, photo, rollNumber } = req.body;
     
     if (!name || !academicYear || !classId || !enrollmentDate || !rollNumber) {
@@ -395,6 +404,21 @@ async function startServer() {
       
       insertStudent.run(studentId, rollNumber, name, academicYear, classId, parentName, parentWhatsApp, enrollmentDate, photo || null);
 
+      // --- InsForge Insertion ---
+      await insforge.database.from('Students').insert([{
+        StudentID: studentId,
+        RollNumber: rollNumber,
+        Name: name,
+        AcademicYear: academicYear,
+        ClassID: classId,
+        ParentName: parentName,
+        ParentWhatsAppNumber: parentWhatsApp,
+        EnrollmentDate: enrollmentDate,
+        Photo: photo || null,
+        StudentStatus: 'Active'
+      }]);
+      // ------------------------
+
       // Insert selected subjects
       if (subjects && Array.isArray(subjects) && subjects.length > 0) {
         const insertSubject = db.prepare('INSERT INTO StudentSubjects (StudentID, SubjectID) VALUES (?, ?)');
@@ -404,6 +428,13 @@ async function startServer() {
           }
         });
         insertMany(subjects);
+        
+        // Also insert subjects to InsForge
+        const subjectInserts = subjects.map(sub => ({
+          StudentID: studentId,
+          SubjectID: sub
+        }));
+        await insforge.database.from('StudentSubjects').insert(subjectInserts);
       }
 
       // Automatically create a parent account
@@ -414,6 +445,15 @@ async function startServer() {
           try {
             const insertParent = db.prepare('INSERT INTO Parents (ParentName, MobileNumber, Password, StudentID, Status) VALUES (?, ?, ?, ?, ?)');
             insertParent.run(parentName || 'Parent', cleanMobile, defaultPassword, studentId, 'Active');
+            
+            // Sync to InsForge Parents Table
+            await insforge.database.from('Parents').insert([{
+              ParentName: parentName || 'Parent',
+              MobileNumber: cleanMobile,
+              Password: defaultPassword,
+              StudentID: studentId,
+              Status: 'Active'
+            }]);
           } catch (parentErr) {
             console.error('Failed to create parent account automatically:', parentErr);
           }
@@ -773,6 +813,18 @@ async function startServer() {
       appType: 'spa',
     });
     app.use(vite.middlewares);
+
+    app.use('*', async (req, res, next) => {
+      try {
+        const url = req.originalUrl;
+        let template = fs.readFileSync(path.resolve(__dirname, 'index.html'), 'utf-8');
+        template = await vite.transformIndexHtml(url, template);
+        res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
+      } catch (e: any) {
+        vite.ssrFixStacktrace(e);
+        next(e);
+      }
+    });
   } else {
     app.use(express.static(path.join(__dirname, 'dist')));
     app.get('*', (req, res) => {
