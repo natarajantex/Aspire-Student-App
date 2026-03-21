@@ -133,6 +133,35 @@ addColumn('Students', 'StudentStatus TEXT DEFAULT \'Active\'');
 addColumn('Tests', 'IsAbsent INTEGER DEFAULT 0');
 addColumn('Tests', 'Chapter TEXT');
 
+// --- Migration: Normalize existing parent mobile numbers and passwords ---
+// Strips country code, keeps 10 digits, updates password to last 5 digits
+try {
+  const parents = db.prepare('SELECT ParentID, MobileNumber FROM Parents').all() as any[];
+  const updateParent = db.prepare('UPDATE Parents SET MobileNumber = ?, Password = ? WHERE ParentID = ?');
+  for (const p of parents) {
+    const digitsOnly = p.MobileNumber.replace(/\D/g, '');
+    const last10 = digitsOnly.slice(-10);
+    const last5 = last10.slice(-5);
+    if (p.MobileNumber !== last10) {
+      updateParent.run(last10, last5, p.ParentID);
+    }
+  }
+  // Also normalize student parent WhatsApp numbers
+  const students = db.prepare('SELECT StudentID, ParentWhatsAppNumber FROM Students WHERE ParentWhatsAppNumber IS NOT NULL').all() as any[];
+  const updateStudent = db.prepare('UPDATE Students SET ParentWhatsAppNumber = ? WHERE StudentID = ?');
+  for (const s of students) {
+    if (s.ParentWhatsAppNumber) {
+      const digitsOnly = s.ParentWhatsAppNumber.replace(/\D/g, '');
+      const last10 = digitsOnly.slice(-10);
+      if (s.ParentWhatsAppNumber !== last10) {
+        updateStudent.run(last10, s.StudentID);
+      }
+    }
+  }
+} catch (migrationErr) {
+  console.error('Migration error (non-fatal):', migrationErr);
+}
+
 // Seed Data
 const seedData = () => {
   const classCount = db.prepare('SELECT COUNT(*) as count FROM Classes').get() as { count: number };
@@ -194,9 +223,9 @@ const seedData = () => {
   const parentCount = db.prepare('SELECT COUNT(*) as count FROM Parents').get() as { count: number };
   if (parentCount.count === 0) {
     const insertParent = db.prepare('INSERT INTO Parents (ParentName, MobileNumber, Password, StudentID, Status) VALUES (?, ?, ?, ?, ?)');
-    insertParent.run('Ramesh', '919876543210', '543210', 'ST001', 'Active');
-    insertParent.run('Suresh', '919876543211', '543211', 'ST002', 'Active');
-    insertParent.run('Mahesh', '919876543212', '543212', 'ST003', 'Active');
+    insertParent.run('Ramesh', '9876543210', '43210', 'ST001', 'Active');
+    insertParent.run('Suresh', '9876543211', '43211', 'ST002', 'Active');
+    insertParent.run('Mahesh', '9876543212', '43212', 'ST003', 'Active');
   }
 };
 
@@ -219,15 +248,16 @@ async function startServer() {
     // Fallback: check if they accidentally used the staff login for a parent account
     const cleanMobile = email ? email.replace(/\D/g, '') : '';
     let parent = null;
-    if (cleanMobile.length >= 10) {
-      const last10 = cleanMobile.slice(-10);
+    // Always use last 10 digits for lookup
+    const last10 = cleanMobile.length >= 10 ? cleanMobile.slice(-10) : cleanMobile;
+    parent = db.prepare('SELECT * FROM Parents WHERE MobileNumber = ? AND Status = ?').get(last10, 'Active') as any;
+    if (!parent && cleanMobile.length >= 10) {
       parent = db.prepare('SELECT * FROM Parents WHERE MobileNumber LIKE ? AND Status = ?').get(`%${last10}`, 'Active') as any;
-    } else {
-      parent = db.prepare('SELECT * FROM Parents WHERE MobileNumber = ? AND Status = ?').get(cleanMobile, 'Active') as any;
     }
     
     if (parent) {
-      const expectedPassword = parent.MobileNumber.replace(/\D/g, '').slice(-6);
+      const mobile10 = parent.MobileNumber.replace(/\D/g, '').slice(-10);
+      const expectedPassword = mobile10.slice(-5);
       if (password === expectedPassword) {
         return res.json({ token: 'dummy-parent-token', user: { id: parent.ParentID, name: parent.ParentName, role: 'parent', studentId: parent.StudentID } });
       }
@@ -242,16 +272,17 @@ async function startServer() {
     const cleanMobile = mobileNumber ? mobileNumber.replace(/\D/g, '') : '';
     
     let parent = null;
-    if (cleanMobile.length >= 10) {
-      const last10 = cleanMobile.slice(-10);
-      parent = db.prepare('SELECT * FROM Parents WHERE MobileNumber LIKE ? AND Status = ?').get(`%${last10}`, 'Active') as any;
-    } else {
-      parent = db.prepare('SELECT * FROM Parents WHERE MobileNumber = ? AND Status = ?').get(cleanMobile, 'Active') as any;
+    // Always use last 10 digits for lookup
+    const last10p = cleanMobile.length >= 10 ? cleanMobile.slice(-10) : cleanMobile;
+    parent = db.prepare('SELECT * FROM Parents WHERE MobileNumber = ? AND Status = ?').get(last10p, 'Active') as any;
+    if (!parent && cleanMobile.length >= 10) {
+      parent = db.prepare('SELECT * FROM Parents WHERE MobileNumber LIKE ? AND Status = ?').get(`%${last10p}`, 'Active') as any;
     }
     
     console.log('Found parent:', parent);
     if (parent) {
-      const expectedPassword = parent.MobileNumber.replace(/\D/g, '').slice(-6);
+      const mobile10 = parent.MobileNumber.replace(/\D/g, '').slice(-10);
+      const expectedPassword = mobile10.slice(-5);
       if (password === expectedPassword) {
         return res.json({ token: 'dummy-parent-token', user: { id: parent.ParentID, name: parent.ParentName, role: 'parent', studentId: parent.StudentID } });
       }
@@ -300,15 +331,31 @@ async function startServer() {
 
   // API Routes
   app.get('/api/dashboard', (req, res) => {
-    const totalStudents = db.prepare('SELECT COUNT(*) as count FROM Students').get() as { count: number };
+    const { academicYear } = req.query;
     
-    const classWiseStudents = db.prepare(`
-      SELECT c.ClassName, COUNT(s.StudentID) as count
-      FROM Classes c
-      LEFT JOIN Students s ON c.ClassID = s.ClassID
-      GROUP BY c.ClassID, c.ClassName
-      ORDER BY c.ClassName
-    `).all();
+    // If academicYear filter is provided, count only students from that year
+    let totalStudents: { count: number };
+    let classWiseStudents: any[];
+    
+    if (academicYear) {
+      totalStudents = db.prepare('SELECT COUNT(*) as count FROM Students WHERE AcademicYear = ?').get(academicYear) as { count: number };
+      classWiseStudents = db.prepare(`
+        SELECT c.ClassName, COUNT(s.StudentID) as count
+        FROM Classes c
+        LEFT JOIN Students s ON c.ClassID = s.ClassID AND s.AcademicYear = ?
+        GROUP BY c.ClassID, c.ClassName
+        ORDER BY c.ClassName
+      `).all(academicYear);
+    } else {
+      totalStudents = db.prepare('SELECT COUNT(*) as count FROM Students').get() as { count: number };
+      classWiseStudents = db.prepare(`
+        SELECT c.ClassName, COUNT(s.StudentID) as count
+        FROM Classes c
+        LEFT JOIN Students s ON c.ClassID = s.ClassID
+        GROUP BY c.ClassID, c.ClassName
+        ORDER BY c.ClassName
+      `).all();
+    }
     
     const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const today = days[new Date().getDay()];
@@ -321,11 +368,17 @@ async function startServer() {
       WHERE sch.DayOfWeek = ?
     `).all(today);
 
+    // Get active academic year
+    const activeYear = db.prepare('SELECT * FROM AcademicYears WHERE Status = ? LIMIT 1').get('Active') as any;
+    const allYears = db.prepare('SELECT * FROM AcademicYears ORDER BY AcademicYear DESC').all();
+
     res.json({
       totalStudents: totalStudents.count,
       classWiseStudents,
       todayClasses,
-      today
+      today,
+      activeAcademicYear: activeYear ? activeYear.AcademicYear : null,
+      academicYears: allYears
     });
   });
 
@@ -394,6 +447,17 @@ async function startServer() {
     }
 
     try {
+      // --- Duplicate check: prevent double entry ---
+      const existingByRoll = db.prepare('SELECT StudentID FROM Students WHERE RollNumber = ? AND AcademicYear = ?').get(rollNumber, academicYear) as any;
+      if (existingByRoll) {
+        return res.status(409).json({ error: 'A student with this roll number already exists for this academic year.' });
+      }
+      const existingByName = db.prepare('SELECT StudentID FROM Students WHERE Name = ? AND ClassID = ? AND AcademicYear = ?').get(name, classId, academicYear) as any;
+      if (existingByName) {
+        return res.status(409).json({ error: 'A student with the same name, class, and academic year already exists.' });
+      }
+      // -----------------------------------------------
+
       // Generate StudentID
       const studentId = `ST${Date.now()}`;
 
@@ -402,21 +466,28 @@ async function startServer() {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Active')
       `);
       
-      insertStudent.run(studentId, rollNumber, name, academicYear, classId, parentName, parentWhatsApp, enrollmentDate, photo || null);
+      // Normalize parent mobile: keep only last 10 digits
+      const normalizedMobile = parentWhatsApp ? parentWhatsApp.replace(/\D/g, '').slice(-10) : '';
+      
+      insertStudent.run(studentId, rollNumber, name, academicYear, classId, parentName, normalizedMobile, enrollmentDate, photo || null);
 
       // --- InsForge Insertion ---
-      await insforge.database.from('Students').insert([{
-        StudentID: studentId,
-        RollNumber: rollNumber,
-        Name: name,
-        AcademicYear: academicYear,
-        ClassID: classId,
-        ParentName: parentName,
-        ParentWhatsAppNumber: parentWhatsApp,
-        EnrollmentDate: enrollmentDate,
-        Photo: photo || null,
-        StudentStatus: 'Active'
-      }]);
+      try {
+        await insforge.database.from('Students').insert([{
+          StudentID: studentId,
+          RollNumber: rollNumber,
+          Name: name,
+          AcademicYear: academicYear,
+          ClassID: classId,
+          ParentName: parentName,
+          ParentWhatsAppNumber: normalizedMobile,
+          EnrollmentDate: enrollmentDate,
+          Photo: photo || null,
+          StudentStatus: 'Active'
+        }]);
+      } catch (insforgeErr) {
+        console.error('InsForge student sync failed (continuing):', insforgeErr);
+      }
       // ------------------------
 
       // Insert selected subjects
@@ -430,33 +501,45 @@ async function startServer() {
         insertMany(subjects);
         
         // Also insert subjects to InsForge
-        const subjectInserts = subjects.map(sub => ({
-          StudentID: studentId,
-          SubjectID: sub
-        }));
-        await insforge.database.from('StudentSubjects').insert(subjectInserts);
+        try {
+          const subjectInserts = subjects.map(sub => ({
+            StudentID: studentId,
+            SubjectID: sub
+          }));
+          await insforge.database.from('StudentSubjects').insert(subjectInserts);
+        } catch (insforgeErr) {
+          console.error('InsForge subjects sync failed (continuing):', insforgeErr);
+        }
       }
 
       // Automatically create a parent account
-      if (parentWhatsApp) {
-        const cleanMobile = parentWhatsApp.replace(/\D/g, '');
-        if (cleanMobile.length >= 6) {
-          const defaultPassword = cleanMobile.slice(-6);
-          try {
+      // Username: 10-digit mobile number, Password: last 5 digits
+      if (normalizedMobile && normalizedMobile.length === 10) {
+        const defaultPassword = normalizedMobile.slice(-5);
+        try {
+          // Check if parent with this mobile already exists
+          const existingParent = db.prepare('SELECT ParentID FROM Parents WHERE MobileNumber = ?').get(normalizedMobile) as any;
+          if (!existingParent) {
             const insertParent = db.prepare('INSERT INTO Parents (ParentName, MobileNumber, Password, StudentID, Status) VALUES (?, ?, ?, ?, ?)');
-            insertParent.run(parentName || 'Parent', cleanMobile, defaultPassword, studentId, 'Active');
+            insertParent.run(parentName || 'Parent', normalizedMobile, defaultPassword, studentId, 'Active');
             
             // Sync to InsForge Parents Table
-            await insforge.database.from('Parents').insert([{
-              ParentName: parentName || 'Parent',
-              MobileNumber: cleanMobile,
-              Password: defaultPassword,
-              StudentID: studentId,
-              Status: 'Active'
-            }]);
-          } catch (parentErr) {
-            console.error('Failed to create parent account automatically:', parentErr);
+            try {
+              await insforge.database.from('Parents').insert([{
+                ParentName: parentName || 'Parent',
+                MobileNumber: normalizedMobile,
+                Password: defaultPassword,
+                StudentID: studentId,
+                Status: 'Active'
+              }]);
+            } catch (insforgeErr) {
+              console.error('InsForge parent sync failed (continuing):', insforgeErr);
+            }
+          } else {
+            console.log('Parent account already exists for mobile:', normalizedMobile);
           }
+        } catch (parentErr) {
+          console.error('Failed to create parent account automatically:', parentErr);
         }
       }
 
@@ -832,7 +915,7 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  app.listen(Number(PORT), '0.0.0.0', () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }
