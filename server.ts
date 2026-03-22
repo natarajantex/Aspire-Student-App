@@ -473,7 +473,7 @@ async function startServer() {
 
       // --- InsForge Insertion ---
       try {
-        await insforge.database.from('Students').insert([{
+        const { error: studentSyncErr } = await insforge.database.from('Students').insert([{
           StudentID: studentId,
           RollNumber: rollNumber,
           Name: name,
@@ -485,6 +485,8 @@ async function startServer() {
           Photo: photo || null,
           StudentStatus: 'Active'
         }]);
+        if (studentSyncErr) console.error('InsForge student sync error:', studentSyncErr);
+        else console.log('InsForge student sync OK:', studentId);
       } catch (insforgeErr) {
         console.error('InsForge student sync failed (continuing):', insforgeErr);
       }
@@ -506,7 +508,9 @@ async function startServer() {
             StudentID: studentId,
             SubjectID: sub
           }));
-          await insforge.database.from('StudentSubjects').insert(subjectInserts);
+          const { error: subjectSyncErr } = await insforge.database.from('StudentSubjects').insert(subjectInserts);
+          if (subjectSyncErr) console.error('InsForge subjects sync error:', subjectSyncErr);
+          else console.log('InsForge subjects sync OK:', studentId);
         } catch (insforgeErr) {
           console.error('InsForge subjects sync failed (continuing):', insforgeErr);
         }
@@ -525,13 +529,15 @@ async function startServer() {
             
             // Sync to InsForge Parents Table
             try {
-              await insforge.database.from('Parents').insert([{
+              const { error: parentSyncErr } = await insforge.database.from('Parents').insert([{
                 ParentName: parentName || 'Parent',
                 MobileNumber: normalizedMobile,
                 Password: defaultPassword,
                 StudentID: studentId,
                 Status: 'Active'
               }]);
+              if (parentSyncErr) console.error('InsForge parent sync error:', parentSyncErr);
+              else console.log('InsForge parent sync OK:', normalizedMobile);
             } catch (insforgeErr) {
               console.error('InsForge parent sync failed (continuing):', insforgeErr);
             }
