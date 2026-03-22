@@ -550,7 +550,7 @@ async function startServer() {
     }
   });
 
-  app.put('/api/students/:id', (req, res) => {
+  app.put('/api/students/:id', async (req, res) => {
     const { id } = req.params;
     const { name, classId, parentName, parentWhatsApp, subjects, studentStatus, rollNumber, photo } = req.body;
     
@@ -559,20 +559,23 @@ async function startServer() {
     }
 
     try {
+      // Normalize parent mobile: keep only last 10 digits
+      const normalizedMobile = parentWhatsApp ? parentWhatsApp.replace(/\D/g, '').slice(-10) : '';
+      
       if (rollNumber) {
         const updateStudent = db.prepare(`
           UPDATE Students 
           SET Name = ?, ClassID = ?, ParentName = ?, ParentWhatsAppNumber = ?, StudentStatus = ?, RollNumber = ?
           WHERE StudentID = ?
         `);
-        updateStudent.run(name, classId, parentName, parentWhatsApp, studentStatus || 'Active', rollNumber, id);
+        updateStudent.run(name, classId, parentName, normalizedMobile, studentStatus || 'Active', rollNumber, id);
       } else {
         const updateStudent = db.prepare(`
           UPDATE Students 
           SET Name = ?, ClassID = ?, ParentName = ?, ParentWhatsAppNumber = ?, StudentStatus = ?
           WHERE StudentID = ?
         `);
-        updateStudent.run(name, classId, parentName, parentWhatsApp, studentStatus || 'Active', id);
+        updateStudent.run(name, classId, parentName, normalizedMobile, studentStatus || 'Active', id);
       }
 
       if (photo !== undefined) {
@@ -597,6 +600,67 @@ async function startServer() {
           });
           insertMany(subjects);
         }
+      }
+
+      // --- Update parent account when mobile number changes ---
+      if (normalizedMobile && normalizedMobile.length === 10) {
+        const newPassword = normalizedMobile.slice(-5);
+        // Check if a parent record exists for this student
+        const existingParent = db.prepare('SELECT ParentID, MobileNumber FROM Parents WHERE StudentID = ?').get(id) as any;
+        if (existingParent) {
+          // Update the parent's mobile number and password
+          db.prepare('UPDATE Parents SET ParentName = ?, MobileNumber = ?, Password = ? WHERE StudentID = ?')
+            .run(parentName || 'Parent', normalizedMobile, newPassword, id);
+          
+          // Sync to InsForge
+          try {
+            await insforge.database.from('Parents')
+              .update({ ParentName: parentName || 'Parent', MobileNumber: normalizedMobile, Password: newPassword })
+              .eq('StudentID', id);
+          } catch (insforgeErr) {
+            console.error('InsForge parent update sync failed (continuing):', insforgeErr);
+          }
+        } else {
+          // Create parent account if it doesn't exist
+          try {
+            const checkMobile = db.prepare('SELECT ParentID FROM Parents WHERE MobileNumber = ?').get(normalizedMobile) as any;
+            if (!checkMobile) {
+              db.prepare('INSERT INTO Parents (ParentName, MobileNumber, Password, StudentID, Status) VALUES (?, ?, ?, ?, ?)')
+                .run(parentName || 'Parent', normalizedMobile, newPassword, id, 'Active');
+              
+              try {
+                await insforge.database.from('Parents').insert([{
+                  ParentName: parentName || 'Parent',
+                  MobileNumber: normalizedMobile,
+                  Password: newPassword,
+                  StudentID: id,
+                  Status: 'Active'
+                }]);
+              } catch (insforgeErr) {
+                console.error('InsForge parent insert sync failed (continuing):', insforgeErr);
+              }
+            }
+          } catch (parentErr) {
+            console.error('Failed to create parent account on update:', parentErr);
+          }
+        }
+      }
+
+      // Sync student update to InsForge
+      try {
+        const updateData: any = {
+          Name: name,
+          ClassID: classId,
+          ParentName: parentName,
+          ParentWhatsAppNumber: normalizedMobile,
+          StudentStatus: studentStatus || 'Active'
+        };
+        if (rollNumber) updateData.RollNumber = rollNumber;
+        if (photo !== undefined) updateData.Photo = photo;
+        
+        await insforge.database.from('Students').update(updateData).eq('StudentID', id);
+      } catch (insforgeErr) {
+        console.error('InsForge student update sync failed (continuing):', insforgeErr);
       }
 
       res.json({ success: true });

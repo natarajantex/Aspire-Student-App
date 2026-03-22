@@ -7,6 +7,12 @@ services:
     envVars:
       - key: SQLITE_DB_PATH
         value: /data/aspire.db
+      - key: NODE_ENV
+        value: production
+      - key: VITE_INSFORGE_URL
+        value: https://mpa5h7zq.us-east.insforge.app
+      - key: VITE_INSFORGE_ANON_KEY
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3OC0xMjM0LTU2NzgtOTBhYi1jZGVmMTIzNDU2NzgiLCJlbWFpbCI6ImFub25AaW5zZm9yZ2UuY29tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4MTc2NzR9.5u3PF1eL5szWEzfx5SmWGVLRjGu6n7EZTtBzt2TqlPs
     disk:
       name: database
       mountPath: /data

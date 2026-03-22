@@ -315,18 +315,23 @@ export default function StudentProfile() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Parent WhatsApp Number</label>
-              <div className="flex">
-                <span className="inline-flex items-center px-3 rounded-l-xl border border-r-0 border-gray-300 bg-gray-50 text-gray-500 text-sm">
-                  +91
-                </span>
-                <input
-                  type="tel"
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-r-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                  value={editFormData.parentWhatsApp}
-                  onChange={(e) => setEditFormData({...editFormData, parentWhatsApp: e.target.value})}
-                />
-              </div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Parent Mobile Number</label>
+              <input
+                type="tel"
+                pattern="[0-9]{10}"
+                maxLength={10}
+                title="Enter 10-digit mobile number (without country code)"
+                className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                placeholder="9876543210"
+                value={editFormData.parentWhatsApp}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/\D/g, '').slice(0, 10);
+                  setEditFormData({...editFormData, parentWhatsApp: val});
+                }}
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                10-digit number. Used as parent portal username. Last 5 digits = password.
+              </p>
             </div>
 
             {editFormData.classId && (
