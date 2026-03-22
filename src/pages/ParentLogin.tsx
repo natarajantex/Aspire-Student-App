@@ -84,7 +84,7 @@ export default function ParentLogin() {
                   type="tel"
                   required
                   className="focus:ring-indigo-500 focus:border-indigo-500 block w-full pl-10 sm:text-sm border-gray-300 rounded-md py-2 border"
-                  placeholder="919876543210"
+                  placeholder="9876543210"
                   value={mobileNumber}
                   onChange={(e) => setMobileNumber(e.target.value)}
                 />
@@ -120,7 +120,9 @@ export default function ParentLogin() {
           </form>
           
           <div className="mt-6 text-center text-xs text-gray-500">
-            <p>Demo Parent: 919876543210 / 543210</p>
+            <p>Username: 10-digit mobile number</p>
+            <p>Password: Last 5 digits of mobile number</p>
+            <p className="mt-1 text-gray-400">Demo: 9876543210 / 43210</p>
           </div>
         </div>
       </div>

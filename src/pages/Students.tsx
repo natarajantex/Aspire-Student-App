@@ -106,8 +106,9 @@ export default function Students() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
       });
+      const result = await res.json();
       if (res.ok) {
-        alert('Student enrolled successfully!');
+        alert('Student enrolled successfully!\n\nParent Portal Login:\nUsername: ' + formData.parentWhatsApp + '\nPassword: ' + formData.parentWhatsApp.slice(-5));
         setShowForm(false);
         setFormData({
           name: '',
@@ -122,7 +123,7 @@ export default function Students() {
         });
         fetchStudents();
       } else {
-        alert('Failed to enroll student.');
+        alert(result.error || 'Failed to enroll student.');
       }
     } catch (err) {
       alert('Error enrolling student.');
@@ -252,13 +253,22 @@ export default function Students() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Parent WhatsApp Number</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Parent Mobile Number</label>
               <input 
-                type="tel" required placeholder="e.g. 919876543210"
+                type="tel" required placeholder="e.g. 9876543210"
+                pattern="[0-9]{10}"
+                maxLength={10}
+                title="Enter 10-digit mobile number (without country code)"
                 className="block w-full px-3 py-2 border border-gray-300 rounded-xl bg-gray-50 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                 value={formData.parentWhatsApp}
-                onChange={e => setFormData({...formData, parentWhatsApp: e.target.value})}
+                onChange={e => {
+                  const val = e.target.value.replace(/\D/g, '').slice(0, 10);
+                  setFormData({...formData, parentWhatsApp: val});
+                }}
               />
+              <p className="text-xs text-gray-500 mt-1">
+                10-digit number. This will be used as parent portal username. Last 5 digits will be the password.
+              </p>
             </div>
 
             <div>

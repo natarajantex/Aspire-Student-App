@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, Navigate } from 'react-router-dom';
-import { Users, CalendarCheck, FileText, ArrowRight, Search, Filter } from 'lucide-react';
+import { Users, CalendarCheck, FileText, ArrowRight, Search, Filter, Calendar } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export default function Dashboard() {
@@ -13,17 +13,40 @@ export default function Dashboard() {
   const [search, setSearch] = useState('');
   const [classFilter, setClassFilter] = useState('');
   const [subjectFilter, setSubjectFilter] = useState('');
+  const [selectedYear, setSelectedYear] = useState('');
 
   const navigate = useNavigate();
 
+  // Fetch dashboard data (with academic year filter)
+  const fetchDashboard = (year?: string) => {
+    const url = year ? `/api/dashboard?academicYear=${encodeURIComponent(year)}` : '/api/dashboard';
+    fetch(url).then(res => res.json()).then(d => {
+      setData(d);
+      // Set default selected year to the active academic year on first load
+      if (!selectedYear && d.activeAcademicYear) {
+        setSelectedYear(d.activeAcademicYear);
+        // Re-fetch with the active year filter
+        fetch(`/api/dashboard?academicYear=${encodeURIComponent(d.activeAcademicYear)}`)
+          .then(res => res.json())
+          .then(setData);
+      }
+    });
+  };
+
   useEffect(() => {
     if (role === 'admin') {
-      fetch('/api/dashboard').then(res => res.json()).then(setData);
+      fetchDashboard();
       fetch('/api/students').then(res => res.json()).then(setStudents);
       fetch('/api/classes').then(res => res.json()).then(setClasses);
       fetch('/api/subjects').then(res => res.json()).then(setSubjects);
     }
   }, [role]);
+
+  // Re-fetch dashboard when year changes
+  const handleYearChange = (year: string) => {
+    setSelectedYear(year);
+    fetchDashboard(year);
+  };
 
   if (role === 'parent' && user?.studentId) {
     return <Navigate to={`/student/${user.studentId}`} replace />;
@@ -41,10 +64,37 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6 max-w-md mx-auto">
+      {/* Academic Year Selector */}
+      {data.academicYears && data.academicYears.length > 0 && (
+        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+          <div className="flex items-center space-x-3">
+            <div className="p-2 bg-violet-50 rounded-xl">
+              <Calendar className="w-5 h-5 text-violet-600" />
+            </div>
+            <div className="flex-1">
+              <label className="block text-xs font-medium text-gray-500 mb-1">Academic Year</label>
+              <select
+                className="block w-full px-3 py-2 border border-gray-200 rounded-xl bg-gray-50 focus:ring-indigo-500 focus:border-indigo-500 text-sm font-semibold text-gray-900"
+                value={selectedYear}
+                onChange={(e) => handleYearChange(e.target.value)}
+              >
+                {data.academicYears.map((y: any) => (
+                  <option key={y.AcademicYearID} value={y.AcademicYear}>
+                    {y.AcademicYear} {y.Status === 'Active' ? '(Active)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <p className="text-sm text-gray-500 font-medium">Total Students</p>
+            <p className="text-sm text-gray-500 font-medium">
+              Total Students {selectedYear ? `(${selectedYear})` : ''}
+            </p>
             <h2 className="text-3xl font-bold text-gray-900">{data.totalStudents}</h2>
           </div>
           <div className="p-3 bg-indigo-50 rounded-xl">

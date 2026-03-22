@@ -757,7 +757,7 @@ async function startServer() {
     }
 
     const report = db.prepare(`
-      SELECT st.Name, a.Status
+      SELECT st.Name, COALESCE(a.Status, 'Absent') as Status
       FROM Students st
       JOIN StudentSubjects ss ON st.StudentID = ss.StudentID
       LEFT JOIN Attendance a ON st.StudentID = a.StudentID AND a.SubjectID = ? AND a.Date = ?

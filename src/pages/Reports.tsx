@@ -79,26 +79,20 @@ export default function Reports() {
     
     const present = attendanceReport.filter(s => s.Status === 'Present');
     const absent = attendanceReport.filter(s => s.Status === 'Absent');
-    const notMarked = attendanceReport.filter(s => !s.Status);
     
     const formattedDate = new Date(date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 
     let text = `${className} - ${subjectName}\nDate: ${formattedDate}\n\n`;
     
-    text += `Present (${present.length}):\n`;
-    text += present.map(s => s.Name).join(', ') || 'None';
-    text += '\n\n';
-    
     text += `Absent (${absent.length}):\n`;
     text += absent.map(s => s.Name).join(', ') || 'None';
     text += '\n\n';
     
-    if (notMarked.length > 0) {
-      text += `Not Marked (${notMarked.length}):\n`;
-      text += notMarked.map(s => s.Name).join(', ');
-      text += '\n\n';
-    }
+    text += `Present (${present.length}):\n`;
+    text += present.map(s => s.Name).join(', ') || 'None';
+    text += '\n\n';
     
+    text += `Total: ${attendanceReport.length} | Present: ${present.length} | Absent: ${absent.length}\n\n`;
     text += `- Aspire Academics`;
 
     navigator.clipboard.writeText(text).then(() => {
@@ -265,8 +259,24 @@ export default function Reports() {
             </div>
 
             <div className="space-y-6">
+              {/* Absent Students - shown first and prominently */}
+              {attendanceReport.filter(s => s.Status === 'Absent').length > 0 && (
+                <div className="bg-rose-50 p-4 rounded-xl border border-rose-100">
+                  <h4 className="text-sm font-bold text-rose-600 uppercase tracking-wider mb-3">
+                    Absent Students ({attendanceReport.filter(s => s.Status === 'Absent').length})
+                  </h4>
+                  <div className="flex flex-wrap gap-2">
+                    {attendanceReport.filter(s => s.Status === 'Absent').map((s, i) => (
+                      <span key={i} className="bg-white text-rose-700 px-3 py-1.5 rounded-lg text-sm font-medium border border-rose-200">{s.Name}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div>
-                <h4 className="text-sm font-bold text-emerald-600 uppercase tracking-wider mb-2">Present Students</h4>
+                <h4 className="text-sm font-bold text-emerald-600 uppercase tracking-wider mb-2">
+                  Present Students ({attendanceReport.filter(s => s.Status === 'Present').length})
+                </h4>
                 <div className="flex flex-wrap gap-2">
                   {attendanceReport.filter(s => s.Status === 'Present').map((s, i) => (
                     <span key={i} className="bg-emerald-50 text-emerald-700 px-3 py-1 rounded-lg text-sm">{s.Name}</span>
@@ -274,27 +284,6 @@ export default function Reports() {
                   {attendanceReport.filter(s => s.Status === 'Present').length === 0 && <span className="text-sm text-gray-500">None</span>}
                 </div>
               </div>
-
-              <div>
-                <h4 className="text-sm font-bold text-rose-600 uppercase tracking-wider mb-2">Absent Students</h4>
-                <div className="flex flex-wrap gap-2">
-                  {attendanceReport.filter(s => s.Status === 'Absent').map((s, i) => (
-                    <span key={i} className="bg-rose-50 text-rose-700 px-3 py-1 rounded-lg text-sm">{s.Name}</span>
-                  ))}
-                  {attendanceReport.filter(s => s.Status === 'Absent').length === 0 && <span className="text-sm text-gray-500">None</span>}
-                </div>
-              </div>
-
-              {attendanceReport.filter(s => !s.Status).length > 0 && (
-                <div>
-                  <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-2">Not Marked</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {attendanceReport.filter(s => !s.Status).map((s, i) => (
-                      <span key={i} className="bg-gray-100 text-gray-600 px-3 py-1 rounded-lg text-sm">{s.Name}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
 
               <div className="bg-gray-50 p-4 rounded-xl flex justify-between items-center mt-4">
                 <div className="text-center">
