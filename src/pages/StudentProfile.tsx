@@ -146,14 +146,22 @@ export default function StudentProfile() {
     });
   };
 
-  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setEditFormData(prev => ({ ...prev, photo: reader.result as string }));
-      };
-      reader.readAsDataURL(file);
+      try {
+        const { compressImage } = await import('../utils/compressImage');
+        const compressed = await compressImage(file, 50, 200);
+        setEditFormData(prev => ({ ...prev, photo: compressed }));
+      } catch (err) {
+        console.error('Image compression failed:', err);
+        // Fallback: use original
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setEditFormData(prev => ({ ...prev, photo: reader.result as string }));
+        };
+        reader.readAsDataURL(file);
+      }
     }
   };
 
