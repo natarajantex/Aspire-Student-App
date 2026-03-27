@@ -691,16 +691,22 @@ async function startServer() {
   });
 
   app.get('/api/attendance/students', (req, res) => {
-    const { subjectId, date } = req.query;
+    const { subjectId, date, academicYear } = req.query;
     if (!subjectId || !date) return res.status(400).json({ error: 'Missing parameters' });
+
+    let fetchYear = academicYear;
+    if (!fetchYear) {
+      const activeYearRecord = db.prepare('SELECT AcademicYear FROM AcademicYears WHERE Status = ? LIMIT 1').get('Active') as any;
+      fetchYear = activeYearRecord ? activeYearRecord.AcademicYear : '2026-2027';
+    }
 
     const students = db.prepare(`
       SELECT st.StudentID, st.Name, a.Status
       FROM Students st
       JOIN StudentSubjects ss ON st.StudentID = ss.StudentID
       LEFT JOIN Attendance a ON st.StudentID = a.StudentID AND a.SubjectID = ? AND a.Date = ?
-      WHERE ss.SubjectID = ? AND (st.StudentStatus = 'Active' OR st.StudentStatus IS NULL)
-    `).all(subjectId, date, subjectId);
+      WHERE ss.SubjectID = ? AND (st.StudentStatus = 'Active' OR st.StudentStatus IS NULL) AND st.AcademicYear = ?
+    `).all(subjectId, date, subjectId, fetchYear);
     
     res.json(students);
   });
@@ -730,16 +736,22 @@ async function startServer() {
   });
 
   app.get('/api/tests/students', (req, res) => {
-    const { subjectId, date } = req.query;
+    const { subjectId, date, academicYear } = req.query;
     if (!subjectId || !date) return res.status(400).json({ error: 'Missing parameters' });
+
+    let fetchYear = academicYear;
+    if (!fetchYear) {
+      const activeYearRecord = db.prepare('SELECT AcademicYear FROM AcademicYears WHERE Status = ? LIMIT 1').get('Active') as any;
+      fetchYear = activeYearRecord ? activeYearRecord.AcademicYear : '2026-2027';
+    }
 
     const students = db.prepare(`
       SELECT st.StudentID, st.Name, t.MarksObtained, t.TotalMarks, t.IsAbsent, t.Chapter
       FROM Students st
       JOIN StudentSubjects ss ON st.StudentID = ss.StudentID
       LEFT JOIN Tests t ON st.StudentID = t.StudentID AND t.SubjectID = ? AND t.Date = ?
-      WHERE ss.SubjectID = ? AND (st.StudentStatus = 'Active' OR st.StudentStatus IS NULL)
-    `).all(subjectId, date, subjectId);
+      WHERE ss.SubjectID = ? AND (st.StudentStatus = 'Active' OR st.StudentStatus IS NULL) AND st.AcademicYear = ?
+    `).all(subjectId, date, subjectId, fetchYear);
     
     res.json(students);
   });
