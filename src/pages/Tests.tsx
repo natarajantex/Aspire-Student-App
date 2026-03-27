@@ -12,18 +12,28 @@ export default function Tests() {
   const [testMarks, setTestMarks] = useState<Record<string, { obtained: string, isAbsent: boolean }>>({});
   const [saving, setSaving] = useState(false);
 
+  const [academicYears, setAcademicYears] = useState<any[]>([]);
+  const [selectedYear, setSelectedYear] = useState('');
+
   useEffect(() => {
-    fetch('/api/subjects')
-      .then(res => res.json())
-      .then(data => {
-        setSubjects(data);
-        if (data.length > 0) setSelectedSubject(data[0].SubjectID);
-      });
+    Promise.all([
+      fetch('/api/subjects').then(res => res.json()),
+      fetch('/api/academic-years').then(res => res.json())
+    ]).then(([subjectsData, yearsData]) => {
+      setSubjects(subjectsData);
+      if (!selectedSubject && subjectsData.length > 0) {
+        setSelectedSubject(subjectsData[0].SubjectID);
+      }
+      setAcademicYears(yearsData);
+      if (yearsData.length > 0) {
+        setSelectedYear(yearsData[0].AcademicYear);
+      }
+    });
   }, []);
 
   useEffect(() => {
-    if (selectedSubject && date) {
-      fetch(`/api/tests/students?subjectId=${selectedSubject}&date=${date}`)
+    if (selectedSubject && date && selectedYear) {
+      fetch(`/api/tests/students?subjectId=${selectedSubject}&date=${date}&academicYear=${encodeURIComponent(selectedYear)}`)
         .then(res => res.json())
         .then(data => {
           setStudents(data);
@@ -43,7 +53,7 @@ export default function Tests() {
           setChapter(fetchedChapter);
         });
     }
-  }, [selectedSubject, date]);
+  }, [selectedSubject, date, selectedYear]);
 
   const handleMarkChange = (studentId: string, field: 'obtained' | 'isAbsent', value: any) => {
     setTestMarks(prev => ({
@@ -97,6 +107,19 @@ export default function Tests() {
           >
             {subjects.map(s => (
               <option key={s.SubjectID} value={s.SubjectID}>{s.ClassName} - {s.SubjectName}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Academic Year</label>
+          <select
+            className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-xl bg-gray-50"
+            value={selectedYear}
+            onChange={(e) => setSelectedYear(e.target.value)}
+          >
+            {academicYears.map(y => (
+              <option key={y.AcademicYear} value={y.AcademicYear}>{y.AcademicYear}</option>
             ))}
           </select>
         </div>
