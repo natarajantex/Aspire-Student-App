@@ -705,7 +705,7 @@ async function startServer() {
       FROM Students st
       JOIN StudentSubjects ss ON st.StudentID = ss.StudentID
       LEFT JOIN Attendance a ON st.StudentID = a.StudentID AND a.SubjectID = ? AND a.Date = ?
-      WHERE ss.SubjectID = ? AND (st.StudentStatus = 'Active' OR st.StudentStatus IS NULL) AND st.AcademicYear = ?
+      WHERE ss.SubjectID = ? AND (st.StudentStatus = 'Active' OR st.StudentStatus IS NULL) AND (st.AcademicYear = ? OR a.Status IS NOT NULL)
     `).all(subjectId, date, subjectId, fetchYear);
     
     res.json(students);
@@ -750,7 +750,7 @@ async function startServer() {
       FROM Students st
       JOIN StudentSubjects ss ON st.StudentID = ss.StudentID
       LEFT JOIN Tests t ON st.StudentID = t.StudentID AND t.SubjectID = ? AND t.Date = ?
-      WHERE ss.SubjectID = ? AND (st.StudentStatus = 'Active' OR st.StudentStatus IS NULL) AND st.AcademicYear = ?
+      WHERE ss.SubjectID = ? AND (st.StudentStatus = 'Active' OR st.StudentStatus IS NULL) AND (st.AcademicYear = ? OR t.StudentID IS NOT NULL)
     `).all(subjectId, date, subjectId, fetchYear);
     
     res.json(students);
