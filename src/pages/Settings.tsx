@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Settings as SettingsIcon, Calendar, BookOpen, Clock, Building, Plus, Edit, Trash2, X, Save, Users } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Navigate } from 'react-router-dom';
+import { insforge } from '../lib/insforge';
 
 export default function Settings() {
   const { role } = useAuth();
@@ -20,21 +21,38 @@ export default function Settings() {
     setLoading(true);
     try {
       const [ayRes, clsRes, subRes, schRes, instRes, parRes] = await Promise.all([
-        fetch('/api/academic-years'),
-        fetch('/api/classes'),
-        fetch('/api/subjects'),
-        fetch('/api/schedules'),
-        fetch('/api/institute'),
-        fetch('/api/parents')
+        insforge.database.from('AcademicYears').select('*').order('AcademicYear', { ascending: false }),
+        insforge.database.from('Classes').select('*'),
+        insforge.database.from('Subjects').select('*, Classes(ClassName)'),
+        insforge.database.from('SubjectSchedule').select('*, Subjects(*, Classes(ClassName))'),
+        insforge.database.from('Institute').select('*').limit(1).single(),
+        insforge.database.from('Parents').select('*, Students(Name, RollNumber)')
       ]);
-      setAcademicYears(await ayRes.json());
-      setClasses(await clsRes.json());
-      setSubjects(await subRes.json());
-      setSchedules(await schRes.json());
-      setInstitute(await instRes.json());
-      setParents(await parRes.json());
+      
+      setAcademicYears(ayRes.data || []);
+      setClasses(clsRes.data || []);
+      
+      const mappedSub = (subRes.data || []).map((s:any) => ({...s, ClassName: s.Classes?.ClassName || ''}));
+      setSubjects(mappedSub);
+      
+      const mappedSch = (schRes.data || []).map((sc:any) => ({
+         ...sc,
+         SubjectName: sc.Subjects?.SubjectName || '',
+         ClassName: sc.Subjects?.Classes?.ClassName || '',
+         Time: sc.StartTime ? (sc.EndTime ? `${sc.StartTime} - ${sc.EndTime}` : sc.StartTime) : ''
+      }));
+      setSchedules(mappedSch);
+      
+      setInstitute(instRes.data || {});
+      
+      const mappedParents = (parRes.data || []).map((p:any) => ({
+         ...p,
+         StudentName: p.Students?.Name || '',
+         RollNumber: p.Students?.RollNumber || ''
+      }));
+      setParents(mappedParents);
     } catch (err) {
-      console.error('Failed to fetch settings data', err);
+      console.error('Failed to fetch settings data from insforge', err);
     }
     setLoading(false);
   };
@@ -109,17 +127,7 @@ function ParentsManager({ data, onRefresh }: { data: any[], onRefresh: () => voi
 
   const handleSave = async (id: number, originalData: any) => {
     try {
-      await fetch(`/api/parents/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          parentName: originalData.ParentName,
-          mobileNumber: originalData.MobileNumber,
-          studentId: originalData.StudentID,
-          password: originalData.Password,
-          status: formData.status
-        })
-      });
+      await insforge.database.from('Parents').update({ Status: formData.status }).eq('ParentID', id);
       setEditingId(null);
       onRefresh();
     } catch (err) {
@@ -192,14 +200,15 @@ function AcademicYearsManager({ data, onRefresh }: { data: any[], onRefresh: () 
 
   const handleSave = async (e: any) => {
     e.preventDefault();
-    const url = formData.id ? `/api/academic-years/${formData.id}` : '/api/academic-years';
-    const method = formData.id ? 'PUT' : 'POST';
+    if (formData.status === 'Active') {
+      await insforge.database.from('AcademicYears').update({ Status: 'Inactive' }).neq('AcademicYearID', 0);
+    }
     
-    await fetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(formData)
-    });
+    if (formData.id) {
+       await insforge.database.from('AcademicYears').update({ AcademicYear: formData.academicYear, Status: formData.status }).eq('AcademicYearID', formData.id);
+    } else {
+       await insforge.database.from('AcademicYears').insert([{ AcademicYear: formData.academicYear, Status: formData.status }]);
+    }
     setShowForm(false);
     onRefresh();
   };
@@ -267,14 +276,11 @@ function ClassesManager({ data, onRefresh }: { data: any[], onRefresh: () => voi
 
   const handleSave = async (e: any) => {
     e.preventDefault();
-    const url = formData.id ? `/api/classes/${formData.id}` : '/api/classes';
-    const method = formData.id ? 'PUT' : 'POST';
-    
-    await fetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(formData)
-    });
+    if (formData.id) {
+      await insforge.database.from('Classes').update({ ClassName: formData.className, Status: formData.status }).eq('ClassID', formData.id);
+    } else {
+      await insforge.database.from('Classes').insert([{ ClassName: formData.className, Status: formData.status }]);
+    }
     setShowForm(false);
     onRefresh();
   };
@@ -342,14 +348,11 @@ function SubjectsManager({ data, classes, onRefresh }: { data: any[], classes: a
 
   const handleSave = async (e: any) => {
     e.preventDefault();
-    const url = formData.id ? `/api/subjects/${formData.id}` : '/api/subjects';
-    const method = formData.id ? 'PUT' : 'POST';
-    
-    await fetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(formData)
-    });
+    if (formData.id) {
+      await insforge.database.from('Subjects').update({ ClassID: formData.classId, SubjectName: formData.subjectName, Status: formData.status }).eq('SubjectID', formData.id);
+    } else {
+      await insforge.database.from('Subjects').insert([{ ClassID: formData.classId, SubjectName: formData.subjectName, Status: formData.status }]);
+    }
     setShowForm(false);
     onRefresh();
   };
@@ -429,21 +432,26 @@ function SchedulesManager({ data, classes, subjects, onRefresh }: { data: any[],
 
   const handleDelete = async (id: string) => {
     if (confirm('Are you sure you want to delete this schedule?')) {
-      await fetch(`/api/schedules/${id}`, { method: 'DELETE' });
+      await insforge.database.from('SubjectSchedule').delete().eq('ScheduleID', id);
       onRefresh();
     }
   };
 
   const handleSave = async (e: any) => {
     e.preventDefault();
-    const url = formData.id ? `/api/schedules/${formData.id}` : '/api/schedules';
-    const method = formData.id ? 'PUT' : 'POST';
+    const [start, end] = formData.time.split('-').map(s=>s.trim());
+    const payload = {
+        SubjectID: formData.subjectId,
+        DayOfWeek: formData.dayOfWeek,
+        StartTime: start || formData.time,
+        EndTime: end || formData.time
+    };
     
-    await fetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(formData)
-    });
+    if (formData.id) {
+      await insforge.database.from('SubjectSchedule').update(payload).eq('ScheduleID', formData.id);
+    } else {
+      await insforge.database.from('SubjectSchedule').insert([payload]);
+    }
     setShowForm(false);
     onRefresh();
   };
@@ -534,11 +542,22 @@ function InstituteManager({ data, onRefresh }: { data: any, onRefresh: () => voi
 
   const handleSave = async (e: any) => {
     e.preventDefault();
-    await fetch('/api/institute', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(formData)
-    });
+    const { data: exist } = await insforge.database.from('Institute').select('InstituteID');
+    if (exist && exist.length > 0) {
+      await insforge.database.from('Institute').update({
+        InstituteName: formData.instituteName,
+        InstituteAddress: formData.instituteAddress,
+        ContactNumber: formData.contactNumber,
+        WhatsAppGroupLink: formData.whatsAppGroupLink
+      }).eq('InstituteID', exist[0].InstituteID);
+    } else {
+      await insforge.database.from('Institute').insert([{
+        InstituteName: formData.instituteName,
+        InstituteAddress: formData.instituteAddress,
+        ContactNumber: formData.contactNumber,
+        WhatsAppGroupLink: formData.whatsAppGroupLink
+      }]);
+    }
     alert('Institute details saved!');
     onRefresh();
   };
