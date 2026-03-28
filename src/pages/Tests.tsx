@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Calendar, Save, FileText, BookOpen } from 'lucide-react';
 import { format } from 'date-fns';
+import { insforge } from '../lib/insforge';
 
 export default function Tests() {
   const [subjects, setSubjects] = useState<any[]>([]);
@@ -17,12 +18,13 @@ export default function Tests() {
 
   useEffect(() => {
     Promise.all([
-      fetch('/api/subjects').then(res => res.json()),
-      fetch('/api/academic-years').then(res => res.json())
+      insforge.database.from('Subjects').select('*, Classes(ClassName)').then(res => res.data || []),
+      insforge.database.from('AcademicYears').select('*').order('AcademicYear', { ascending: false }).then(res => res.data || [])
     ]).then(([subjectsData, yearsData]) => {
-      setSubjects(subjectsData);
-      if (!selectedSubject && subjectsData.length > 0) {
-        setSelectedSubject(subjectsData[0].SubjectID);
+      const mappedIdx = subjectsData.map((s:any) => ({...s, ClassName: s.Classes?.ClassName || ''}));
+      setSubjects(mappedIdx);
+      if (!selectedSubject && mappedIdx.length > 0) {
+        setSelectedSubject(mappedIdx[0].SubjectID);
       }
       setAcademicYears(yearsData);
       if (yearsData.length > 0) {
@@ -33,25 +35,54 @@ export default function Tests() {
 
   useEffect(() => {
     if (selectedSubject && date && selectedYear) {
-      fetch(`/api/tests/students?subjectId=${selectedSubject}&date=${date}&academicYear=${encodeURIComponent(selectedYear)}`)
-        .then(res => res.json())
-        .then(data => {
-          setStudents(data);
-          const marks: Record<string, { obtained: string, isAbsent: boolean }> = {};
-          let fetchedTotal = 100;
-          let fetchedChapter = '';
-          data.forEach((s: any) => {
-            marks[s.StudentID] = {
-              obtained: s.MarksObtained !== null ? String(s.MarksObtained) : '',
-              isAbsent: s.IsAbsent === 1
-            };
-            if (s.TotalMarks) fetchedTotal = s.TotalMarks;
-            if (s.Chapter) fetchedChapter = s.Chapter;
+      const fetchTests = async () => {
+        const { data: studentSubjects } = await insforge.database
+          .from('StudentSubjects')
+          .select('StudentID, Students(*)')
+          .eq('SubjectID', selectedSubject);
+
+        const { data: testRecords } = await insforge.database
+          .from('Tests')
+          .select('*')
+          .eq('Date', date)
+          .eq('SubjectID', selectedSubject);
+
+        const testMap = new Map((testRecords || []).map((t: any) => [t.StudentID, t]));
+
+        const activeStudents = (studentSubjects || [])
+          .map((ss: any) => ss.Students)
+          .filter((st: any) => !!st)
+          .filter((st: any) => {
+             const isActive = st.StudentStatus === 'Active' || !st.StudentStatus;
+             const matchesYear = st.AcademicYear === selectedYear;
+             const tookTest = testMap.has(st.StudentID);
+             return isActive && (matchesYear || tookTest);
           });
-          setTestMarks(marks);
-          setGlobalTotalMarks(fetchedTotal);
-          setChapter(fetchedChapter);
+
+        setStudents(activeStudents);
+
+        let fetchedTotal = 100;
+        let fetchedChapter = '';
+        const marks: Record<string, { obtained: string, isAbsent: boolean }> = {};
+        
+        activeStudents.forEach((s: any) => {
+          const tRecord = testMap.get(s.StudentID);
+          if (tRecord) {
+            marks[s.StudentID] = {
+              obtained: tRecord.MarksObtained !== null ? String(tRecord.MarksObtained) : '',
+              isAbsent: tRecord.IsAbsent === 1
+            };
+            if (tRecord.TotalMarks) fetchedTotal = tRecord.TotalMarks;
+            if (tRecord.Chapter) fetchedChapter = tRecord.Chapter;
+          } else {
+            marks[s.StudentID] = { obtained: '', isAbsent: false };
+          }
         });
+        setTestMarks(marks);
+        setGlobalTotalMarks(fetchedTotal);
+        setChapter(fetchedChapter);
+      };
+      fetchTests();
     }
   }, [selectedSubject, date, selectedYear]);
 
@@ -69,24 +100,26 @@ export default function Tests() {
   const handleSave = async () => {
     setSaving(true);
     const dataToSave = Object.entries(testMarks).map(([studentId, marks]: [string, any]) => ({
-      studentId,
-      marksObtained: marks.obtained ? parseFloat(marks.obtained) : null,
-      isAbsent: marks.isAbsent
-    })).filter(item => item.marksObtained !== null || item.isAbsent);
+      Date: date,
+      SubjectID: selectedSubject,
+      StudentID: studentId,
+      MarksObtained: marks.obtained ? parseFloat(marks.obtained) : (marks.isAbsent ? 0 : null),
+      TotalMarks: globalTotalMarks || 100,
+      IsAbsent: marks.isAbsent ? 1 : 0,
+      Chapter: chapter || null
+    })).filter(item => item.MarksObtained !== null || item.IsAbsent === 1);
 
     try {
-      const res = await fetch('/api/tests', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          date,
-          subjectId: selectedSubject,
-          chapter,
-          globalTotalMarks,
-          testData: dataToSave
-        })
-      });
-      if (!res.ok) throw new Error('Failed to save test marks');
+      if (dataToSave.length > 0) {
+        for (const record of dataToSave) {
+           await insforge.database.from('Tests').delete()
+             .eq('Date', record.Date).eq('SubjectID', record.SubjectID).eq('StudentID', record.StudentID);
+        }
+        
+        const { error } = await insforge.database.from('Tests').insert(dataToSave);
+        if (error) throw error;
+      }
+      
       alert('Test marks saved successfully!');
     } catch (err) {
       alert('Failed to save test marks.');

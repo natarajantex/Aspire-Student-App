@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Calendar, Save, CheckCircle2, XCircle, MessageCircle } from 'lucide-react';
 import { format } from 'date-fns';
+import { insforge } from '../lib/insforge';
 
 export default function Attendance() {
   const [searchParams] = useSearchParams();
@@ -19,12 +20,13 @@ export default function Attendance() {
 
   useEffect(() => {
     Promise.all([
-      fetch('/api/subjects').then(res => res.json()),
-      fetch('/api/academic-years').then(res => res.json())
+      insforge.database.from('Subjects').select('*, Classes(ClassName)').then(res => res.data || []),
+      insforge.database.from('AcademicYears').select('*').order('AcademicYear', { ascending: false }).then(res => res.data || [])
     ]).then(([subjectsData, yearsData]) => {
-      setSubjects(subjectsData);
-      if (!selectedSubject && subjectsData.length > 0) {
-        setSelectedSubject(subjectsData[0].SubjectID);
+      const mappedIdx = subjectsData.map((s:any) => ({...s, ClassName: s.Classes?.ClassName || ''}));
+      setSubjects(mappedIdx);
+      if (!selectedSubject && mappedIdx.length > 0) {
+        setSelectedSubject(mappedIdx[0].SubjectID);
       }
       setAcademicYears(yearsData);
       if (yearsData.length > 0) {
@@ -35,16 +37,38 @@ export default function Attendance() {
 
   useEffect(() => {
     if (selectedSubject && date && selectedYear) {
-      fetch(`/api/attendance/students?subjectId=${selectedSubject}&date=${date}&academicYear=${encodeURIComponent(selectedYear)}`)
-        .then(res => res.json())
-        .then(data => {
-          setStudents(data);
-          const att: Record<string, string> = {};
-          data.forEach((s: any) => {
-            att[s.StudentID] = s.Status || 'Present'; // Default to Present
+      const fetchAttendance = async () => {
+        const { data: studentSubjects } = await insforge.database
+          .from('StudentSubjects')
+          .select('StudentID, Students(*)')
+          .eq('SubjectID', selectedSubject);
+
+        const { data: attendanceRecords } = await insforge.database
+          .from('Attendance')
+          .select('*')
+          .eq('Date', date)
+          .eq('SubjectID', selectedSubject);
+
+        const attendanceMap = new Map((attendanceRecords || []).map((a: any) => [a.StudentID, a.Status]));
+
+        const activeStudents = (studentSubjects || [])
+          .map((ss: any) => ss.Students)
+          .filter((st: any) => !!st)
+          .filter((st: any) => {
+             const isActive = st.StudentStatus === 'Active' || !st.StudentStatus;
+             const matchesYear = st.AcademicYear === selectedYear;
+             const hasAttendance = attendanceMap.has(st.StudentID);
+             return isActive && (matchesYear || hasAttendance);
           });
-          setAttendance(att);
+
+        setStudents(activeStudents);
+        const att: Record<string, string> = {};
+        activeStudents.forEach((s: any) => {
+          att[s.StudentID] = attendanceMap.get(s.StudentID) || 'Present';
         });
+        setAttendance(att);
+      };
+      fetchAttendance();
     }
   }, [selectedSubject, date, selectedYear]);
 
@@ -58,21 +82,22 @@ export default function Attendance() {
   const handleSave = async () => {
     setSaving(true);
     const dataToSave = Object.entries(attendance).map(([studentId, status]) => ({
-      studentId,
-      status
+      Date: date,
+      SubjectID: selectedSubject,
+      StudentID: studentId,
+      Status: status
     }));
 
     try {
-      const res = await fetch('/api/attendance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          date,
-          subjectId: selectedSubject,
-          attendanceData: dataToSave
-        })
-      });
-      if (!res.ok) throw new Error('Failed to save attendance');
+      if (dataToSave.length > 0) {
+        for (const record of dataToSave) {
+           await insforge.database.from('Attendance').delete()
+             .eq('Date', record.Date).eq('SubjectID', record.SubjectID).eq('StudentID', record.StudentID);
+        }
+        
+        const { error } = await insforge.database.from('Attendance').insert(dataToSave);
+        if (error) throw error;
+      }
       alert('Attendance saved successfully!');
     } catch (err) {
       alert('Failed to save attendance.');
