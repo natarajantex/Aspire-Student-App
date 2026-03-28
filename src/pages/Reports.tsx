@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { Search, BarChart2, MessageCircle, Download, Copy, CalendarCheck, FileText } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { format } from 'date-fns';
+import { insforge } from '../lib/insforge';
 
 export default function Reports() {
   const [activeTab, setActiveTab] = useState<'attendance' | 'tests'>('attendance');
@@ -23,15 +24,15 @@ export default function Reports() {
   const [academicYear, setAcademicYear] = useState('');
 
   useEffect(() => {
-    fetch('/api/classes').then(res => res.json()).then(setClasses);
-    fetch('/api/subjects').then(res => res.json()).then(setSubjects);
-    fetch('/api/academic-years')
-      .then(res => res.json())
-      .then(data => {
+    insforge.database.from('Classes').select('*').then(res => setClasses(res.data || []));
+    insforge.database.from('Subjects').select('*').then(res => setSubjects(res.data || []));
+    insforge.database.from('AcademicYears').select('*').order('AcademicYear', { ascending: false })
+      .then(res => {
+        const data = res.data || [];
         setAcademicYears(data);
-        if (data.length > 0) {
-          setAcademicYear(data[0].AcademicYear);
-        }
+        const active = data.find(y => y.Status === 'Active');
+        if (active) setAcademicYear(active.AcademicYear);
+        else if (data.length > 0) setAcademicYear(data[0].AcademicYear);
       });
   }, []);
 
@@ -44,10 +45,32 @@ export default function Reports() {
     }
     setLoading(true);
     try {
-      const res = await fetch(`/api/reports/class-attendance?academicYear=${academicYear}&classId=${classId}&subjectId=${subjectId}&date=${date}`);
-      if (!res.ok) throw new Error('Failed to generate report');
-      const data = await res.json();
-      setAttendanceReport(data);
+      const { data: studentSubjects } = await insforge.database
+        .from('StudentSubjects')
+        .select('StudentID, Students(*)')
+        .eq('SubjectID', subjectId);
+        
+      const validStudents = (studentSubjects || [])
+         .map((s:any) => s.Students)
+         .filter((s:any) => s && s.AcademicYear === academicYear && (s.StudentStatus === 'Active' || !s.StudentStatus));
+
+      const { data: attendance } = await insforge.database
+        .from('Attendance')
+        .select('*')
+        .eq('SubjectID', subjectId)
+        .eq('Date', date);
+        
+      const attMap = new Map((attendance || []).map((a:any) => [a.StudentID, a.Status]));
+      
+      const report = validStudents.map((s:any) => ({
+         StudentID: s.StudentID,
+         Name: s.Name,
+         RollNumber: s.RollNumber,
+         Status: attMap.get(s.StudentID) || 'Absent'
+      }));
+      report.sort((a: any, b: any) => a.Name.localeCompare(b.Name));
+
+      setAttendanceReport(report);
     } catch (err) {
       alert('Failed to generate report.');
     }
@@ -61,10 +84,43 @@ export default function Reports() {
     }
     setLoading(true);
     try {
-      const res = await fetch(`/api/reports/class-tests?academicYear=${academicYear}&classId=${classId}&subjectId=${subjectId}&date=${date}`);
-      if (!res.ok) throw new Error('Failed to generate report');
-      const data = await res.json();
-      setTestReport(data);
+      const { data: studentSubjects } = await insforge.database
+        .from('StudentSubjects')
+        .select('StudentID, Students(*)')
+        .eq('SubjectID', subjectId);
+        
+      const validStudents = (studentSubjects || [])
+         .map((s:any) => s.Students)
+         .filter((s:any) => s && s.AcademicYear === academicYear && (s.StudentStatus === 'Active' || !s.StudentStatus));
+
+      const { data: tests } = await insforge.database
+        .from('Tests')
+        .select('*')
+        .eq('SubjectID', subjectId)
+        .eq('Date', date);
+        
+      const tm = new Map((tests || []).map((t:any) => [t.StudentID, t]));
+      
+      const report = validStudents.map((s:any) => {
+         const tInfo = tm.get(s.StudentID);
+         return {
+           StudentID: s.StudentID,
+           Name: s.Name,
+           RollNumber: s.RollNumber,
+           Chapter: tInfo?.Chapter || '',
+           TotalMarks: tInfo?.TotalMarks || 0,
+           MarksObtained: tInfo ? tInfo.MarksObtained : null,
+           IsAbsent: tInfo ? tInfo.IsAbsent : false
+         };
+      });
+      
+      report.sort((a: any, b: any) => {
+         const aMarks = a.MarksObtained || 0;
+         const bMarks = b.MarksObtained || 0;
+         return bMarks - aMarks;
+      });
+
+      setTestReport(report);
     } catch (err) {
       alert('Failed to generate report.');
     }
