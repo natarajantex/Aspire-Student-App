@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Search, Filter, Plus, X, UserPlus } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { insforge } from '../lib/insforge';
 
 export default function Students() {
   const [students, setStudents] = useState<any[]>([]);
@@ -28,41 +29,79 @@ export default function Students() {
 
   const navigate = useNavigate();
 
-  const fetchStudents = () => {
-    fetch('/api/students')
-      .then(res => res.json())
-      .then(setStudents);
+  const fetchStudents = async () => {
+    const { data } = await insforge.database
+      .from('Students')
+      .select('*, Classes(ClassName), StudentSubjects(SubjectID, Subjects(SubjectName))');
+      
+    if (data) {
+      const mapped = data.map((st: any) => {
+        const subs = st.StudentSubjects || [];
+        return {
+          ...st,
+          ClassName: st.Classes?.ClassName || '',
+          EnrolledSubjectIDs: subs.map((s:any) => s.SubjectID).join(','),
+          EnrolledSubjects: subs.map((s:any) => s.Subjects?.SubjectName).filter(Boolean).join(', '),
+          StudentStatus: st.StudentStatus || 'Active'
+        };
+      });
+      setStudents(mapped);
+    }
   };
 
   const [academicYears, setAcademicYears] = useState<any[]>([]);
 
   useEffect(() => {
     fetchStudents();
-    fetch('/api/classes').then(res => res.json()).then(setClasses);
-    fetch('/api/subjects').then(res => res.json()).then(setSubjects);
-    fetch('/api/academic-years')
-      .then(res => res.json())
-      .then(data => {
-        setAcademicYears(data);
-        if (data.length > 0) {
-          setFormData(prev => ({ ...prev, academicYear: data[0].AcademicYear }));
-          setYearFilter(data[0].AcademicYear);
-        }
-      });
+    
+    insforge.database.from('Classes').select('*').then(res => setClasses(res.data || []));
+    
+    insforge.database.from('Subjects').select('*').then(res => setSubjects(res.data || []));
+    
+    insforge.database.from('AcademicYears').select('*').order('AcademicYear', { ascending: false }).then(res => {
+      const data = res.data || [];
+      setAcademicYears(data);
+      if (data.length > 0) {
+        setFormData(prev => ({ ...prev, academicYear: data[0].AcademicYear }));
+        setYearFilter(data[0].AcademicYear);
+      }
+    });
   }, []);
 
   useEffect(() => {
     if (formData.academicYear && formData.classId) {
-      fetch(`/api/generate-roll-number?academicYear=${formData.academicYear}&classId=${formData.classId}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data.rollNumber) {
-            setFormData(prev => ({ ...prev, rollNumber: data.rollNumber }));
-          }
-        })
-        .catch(err => console.error('Failed to generate roll number', err));
+      const generateRoll = async () => {
+        const yearStr = String(formData.academicYear);
+        const match = yearStr.match(/^(\d{4})/);
+        const year = match ? match[1] : yearStr;
+        const yy = year.slice(-2);
+        
+        const classRecord = classes.find(c => c.ClassID === formData.classId);
+        const cc = classRecord ? classRecord.ClassName.replace(/\D/g, '') : formData.classId.replace(/\D/g, '');
+        const prefix = `${yy}A${cc}`;
+
+        const { data } = await insforge.database
+          .from('Students')
+          .select('RollNumber')
+          .eq('AcademicYear', formData.academicYear)
+          .eq('ClassID', formData.classId)
+          .like('RollNumber', `${prefix}%`)
+          .order('RollNumber', { ascending: false })
+          .limit(1);
+
+        let nextSequence = 1;
+        if (data && data.length > 0 && data[0].RollNumber) {
+          const currentSeqStr = data[0].RollNumber.slice(prefix.length);
+          const currentSeq = parseInt(currentSeqStr, 10);
+          if (!isNaN(currentSeq)) nextSequence = currentSeq + 1;
+        }
+        const rr = nextSequence.toString().padStart(2, '0');
+        setFormData(prev => ({ ...prev, rollNumber: `${prefix}${rr}` }));
+      };
+      
+      generateRoll().catch(err => console.error('Failed to generate roll number', err));
     }
-  }, [formData.academicYear, formData.classId]);
+  }, [formData.academicYear, formData.classId, classes]);
 
   const filteredStudents = students.filter(s => {
     const matchesSearch = s.Name.toLowerCase().includes(search.toLowerCase()) || 
@@ -109,32 +148,68 @@ export default function Students() {
   const handleSubmit = async (e: any) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/students', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
-      });
-      const result = await res.json();
-      if (res.ok) {
-        alert('Student enrolled successfully!\n\nParent Portal Login:\nUsername: ' + formData.parentWhatsApp + '\nPassword: ' + formData.parentWhatsApp.slice(-5));
-        setShowForm(false);
-        setFormData({
-          name: '',
-          academicYear: academicYears.length > 0 ? academicYears[0].AcademicYear : '',
-          classId: '',
-          parentName: '',
-          parentWhatsApp: '',
-          enrollmentDate: new Date().toISOString().split('T')[0],
-          subjects: [],
-          photo: '',
-          rollNumber: ''
-        });
-        fetchStudents();
-      } else {
-        alert(result.error || 'Failed to enroll student.');
+      const studentId = `ST${Date.now()}`;
+      const normalizedMobile = formData.parentWhatsApp ? formData.parentWhatsApp.replace(/\D/g, '').slice(-10) : '';
+
+      const { data: existingByRoll } = await insforge.database.from('Students').select('StudentID').eq('RollNumber', formData.rollNumber).eq('AcademicYear', formData.academicYear);
+      if (existingByRoll && existingByRoll.length > 0) {
+        alert('A student with this roll number already exists for this academic year.');
+        return;
       }
-    } catch (err) {
-      alert('Error enrolling student.');
+
+      const { error: studentErr } = await insforge.database.from('Students').insert([{
+        StudentID: studentId,
+        RollNumber: formData.rollNumber,
+        Name: formData.name,
+        AcademicYear: formData.academicYear,
+        ClassID: formData.classId,
+        ParentName: formData.parentName,
+        ParentWhatsAppNumber: normalizedMobile,
+        EnrollmentDate: formData.enrollmentDate,
+        Photo: formData.photo || null,
+        StudentStatus: 'Active'
+      }]);
+      
+      if (studentErr) throw new Error(studentErr.message);
+
+      if (formData.subjects.length > 0) {
+        const subjectInserts = formData.subjects.map(sub => ({
+          StudentID: studentId,
+          SubjectID: sub
+        }));
+        await insforge.database.from('StudentSubjects').insert(subjectInserts);
+      }
+
+      if (normalizedMobile.length === 10) {
+        const defaultPassword = normalizedMobile.slice(-5);
+        const { data: checkMobile } = await insforge.database.from('Parents').select('ParentID').eq('MobileNumber', normalizedMobile);
+        if (!checkMobile || checkMobile.length === 0) {
+          await insforge.database.from('Parents').insert([{
+            ParentName: formData.parentName || 'Parent',
+            MobileNumber: normalizedMobile,
+            Password: defaultPassword,
+            StudentID: studentId,
+            Status: 'Active'
+          }]);
+        }
+      }
+
+      alert('Student enrolled successfully!\n\nParent Portal Login:\nUsername: ' + formData.parentWhatsApp + '\nPassword: ' + formData.parentWhatsApp.slice(-5));
+      setShowForm(false);
+      setFormData({
+        name: '',
+        academicYear: academicYears.length > 0 ? academicYears[0].AcademicYear : '',
+        classId: '',
+        parentName: '',
+        parentWhatsApp: '',
+        enrollmentDate: new Date().toISOString().split('T')[0],
+        subjects: [],
+        photo: '',
+        rollNumber: ''
+      });
+      fetchStudents();
+    } catch (err: any) {
+      alert('Error enrolling student: ' + err.message);
     }
   };
 
