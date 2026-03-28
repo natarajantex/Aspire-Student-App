@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, Navigate } from 'react-router-dom';
 import { Users, CalendarCheck, FileText, ArrowRight, Search, Filter, Calendar } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { insforge } from '../lib/insforge';
 
 export default function Dashboard() {
   const { role, user } = useAuth();
@@ -17,28 +18,67 @@ export default function Dashboard() {
 
   const navigate = useNavigate();
 
-  // Fetch dashboard data (with academic year filter)
-  const fetchDashboard = (year?: string) => {
-    const url = year ? `/api/dashboard?academicYear=${encodeURIComponent(year)}` : '/api/dashboard';
-    fetch(url).then(res => res.json()).then(d => {
-      setData(d);
-      // Set default selected year to the active academic year on first load
-      if (!selectedYear && d.activeAcademicYear) {
-        setSelectedYear(d.activeAcademicYear);
-        // Re-fetch with the active year filter
-        fetch(`/api/dashboard?academicYear=${encodeURIComponent(d.activeAcademicYear)}`)
-          .then(res => res.json())
-          .then(setData);
-      }
+  const fetchDashboard = async (year?: string) => {
+    const { data: academicYearsData } = await insforge.database
+      .from('AcademicYears')
+      .select('*')
+      .order('AcademicYear', { ascending: false });
+      
+    const academicYears = academicYearsData || [];
+    const activeYearRec = academicYears.find(y => y.Status === 'Active');
+    const activeAcademicYear = activeYearRec ? activeYearRec.AcademicYear : (academicYears[0]?.AcademicYear || '2026-2027');
+    
+    const queryYear = year || activeAcademicYear;
+    if (!year && !selectedYear) {
+      setSelectedYear(queryYear);
+    }
+
+    const { data: students } = await insforge.database
+      .from('Students')
+      .select('StudentID, ClassID, Classes(ClassName)')
+      .eq('AcademicYear', queryYear)
+      .eq('StudentStatus', 'Active'); // Only active students per request
+
+    const validStudents = students || [];
+    
+    const classCountMap: Record<string, number> = {};
+    validStudents.forEach((s: any) => {
+      const clsObj = Array.isArray(s.Classes) ? s.Classes[0] : s.Classes;
+      const clsName = clsObj?.ClassName || 'Unknown';
+      classCountMap[clsName] = (classCountMap[clsName] || 0) + 1;
+    });
+    
+    const classWiseStudents = Object.entries(classCountMap).map(([ClassName, count]) => ({ ClassName, count }));
+
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const todayName = days[new Date().getDay()];
+    
+    const { data: schedules } = await insforge.database
+      .from('SubjectSchedule')
+      .select('*, Subjects(*, Classes(ClassName))')
+      .eq('DayOfWeek', todayName)
+      .order('StartTime', { ascending: true });
+      
+    const todayClasses = (schedules || []).map((sc: any) => ({
+      SubjectID: sc.SubjectID,
+      SubjectName: sc.Subjects?.SubjectName || 'Unknown',
+      ClassName: sc.Subjects?.Classes?.ClassName || 'Unknown',
+      Time: `${sc.StartTime} - ${sc.EndTime}`
+    }));
+
+    setData({
+      totalStudents: validStudents.length,
+      classWiseStudents,
+      today: new Date().toLocaleDateString('en-GB'),
+      todayClasses,
+      academicYears,
+      activeAcademicYear
     });
   };
 
   useEffect(() => {
     if (role === 'admin') {
       fetchDashboard();
-      fetch('/api/students').then(res => res.json()).then(setStudents);
-      fetch('/api/classes').then(res => res.json()).then(setClasses);
-      fetch('/api/subjects').then(res => res.json()).then(setSubjects);
     }
   }, [role]);
 
@@ -53,14 +93,6 @@ export default function Dashboard() {
   }
 
   if (!data) return <div className="p-4 text-center">Loading...</div>;
-
-  const filteredStudents = students.filter(s => {
-    const matchesSearch = s.Name.toLowerCase().includes(search.toLowerCase()) || 
-                          s.StudentID.toLowerCase().includes(search.toLowerCase());
-    const matchesClass = classFilter ? s.ClassID === classFilter : true;
-    const matchesSubject = subjectFilter ? (s.EnrolledSubjectIDs && s.EnrolledSubjectIDs.includes(subjectFilter)) : true;
-    return matchesSearch && matchesClass && matchesSubject;
-  });
 
   return (
     <div className="space-y-6 max-w-md mx-auto">

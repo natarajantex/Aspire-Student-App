@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { insforge } from '../lib/insforge';
 
 export default function StudentProfile() {
   const { id } = useParams();
@@ -54,39 +55,109 @@ export default function StudentProfile() {
   });
   const [isRollNumberUnlocked, setIsRollNumberUnlocked] = useState(false);
 
-  const fetchStudentData = () => {
-    fetch('/api/students')
-      .then(res => res.json())
-      .then(data => {
-        const found = data.find((s: any) => s.StudentID === id);
-        setStudent(found);
-        if (found) {
-          setEditFormData({
-            name: found.Name,
-            parentName: found.ParentName,
-            parentWhatsApp: found.ParentWhatsAppNumber,
-            classId: found.ClassID,
-            studentStatus: found.StudentStatus || 'Active',
-            rollNumber: found.RollNumber || '',
-            photo: found.Photo || '',
-            subjects: found.EnrolledSubjectIDs ? found.EnrolledSubjectIDs.split(',') : []
-          });
-        }
+  const fetchStudentData = async () => {
+    if (!id) return;
+    const { data } = await insforge.database
+      .from('Students')
+      .select('*, Classes(ClassName), StudentSubjects(SubjectID, Subjects(SubjectName))')
+      .eq('StudentID', id)
+      .single();
+
+    if (data) {
+      const subs = data.StudentSubjects || [];
+      const EnrolledSubjectIDs = subs.map((s:any) => s.SubjectID).join(',');
+      const EnrolledSubjects = subs.map((s:any) => s.Subjects?.SubjectName).filter(Boolean).join(', ');
+      
+      const found = {
+        ...data,
+        ClassName: data.Classes?.ClassName || '',
+        EnrolledSubjectIDs,
+        EnrolledSubjects,
+        StudentStatus: data.StudentStatus || 'Active'
+      };
+      
+      setStudent(found);
+      setEditFormData({
+        name: found.Name,
+        parentName: found.ParentName,
+        parentWhatsApp: found.ParentWhatsAppNumber,
+        classId: found.ClassID,
+        studentStatus: found.StudentStatus || 'Active',
+        rollNumber: found.RollNumber || '',
+        photo: found.Photo || '',
+        subjects: found.EnrolledSubjectIDs ? found.EnrolledSubjectIDs.split(',') : []
       });
+    }
   };
 
   useEffect(() => {
     fetchStudentData();
 
-    // Fetch report data
     if (id) {
-      fetch(`/api/reports/student/${id}`)
-        .then(res => res.json())
-        .then(setReportData);
+      const fetchReports = async () => {
+        const { data: attendance } = await insforge.database
+          .from('Attendance')
+          .select('*, Subjects(SubjectName)')
+          .eq('StudentID', id)
+          .order('Date', { ascending: false });
+
+        const { data: tests } = await insforge.database
+          .from('Tests')
+          .select('*, Subjects(SubjectName)')
+          .eq('StudentID', id)
+          .order('Date', { ascending: false });
+
+        const allAtt = (attendance || []).map((a: any) => ({
+           Date: a.Date,
+           SubjectName: a.Subjects?.SubjectName || 'Unknown',
+           Status: a.Status
+        }));
+        
+        const rd = {
+           allAttendance: allAtt,
+           recentAttendance: allAtt.slice(0, 5),
+           recentTests: (tests || []).slice(0, 5).map((t: any) => ({
+              Date: t.Date,
+              SubjectName: t.Subjects?.SubjectName || 'Unknown',
+              Chapter: t.Chapter,
+              TotalMarks: t.TotalMarks,
+              MarksObtained: t.MarksObtained,
+              IsAbsent: t.IsAbsent
+           })),
+           attendance: [] as any[],
+           tests: [] as any[]
+        };
+        
+        const subAtt: Record<string, any> = {};
+        allAtt.forEach(a => {
+           if (!subAtt[a.SubjectName]) subAtt[a.SubjectName] = { SubjectName: a.SubjectName, TotalClasses: 0, PresentClasses: 0 };
+           subAtt[a.SubjectName].TotalClasses++;
+           if (a.Status === 'Present') subAtt[a.SubjectName].PresentClasses++;
+        });
+        rd.attendance = Object.values(subAtt);
+
+        const subTest: Record<string, any> = {};
+        (tests || []).forEach((t:any) => {
+           const sname = t.Subjects?.SubjectName || 'Unknown';
+           if (!subTest[sname]) subTest[sname] = { SubjectName: sname, totalPerc: 0, count: 0 };
+           if (!t.IsAbsent && t.TotalMarks > 0) {
+              subTest[sname].totalPerc += (t.MarksObtained / t.TotalMarks) * 100;
+              subTest[sname].count++;
+           }
+        });
+        rd.tests = Object.values(subTest).map(s => ({
+           SubjectName: s.SubjectName,
+           AveragePercentage: s.count > 0 ? s.totalPerc / s.count : null
+        }));
+
+        setReportData(rd);
+      };
+      
+      fetchReports();
     }
     
-    fetch('/api/classes').then(res => res.json()).then(setClasses);
-    fetch('/api/subjects').then(res => res.json()).then(setSubjects);
+    insforge.database.from('Classes').select('*').then(res => setClasses(res.data || []));
+    insforge.database.from('Subjects').select('*').then(res => setSubjects(res.data || []));
   }, [id]);
 
   if (!student || !reportData) {
@@ -167,18 +238,28 @@ export default function StudentProfile() {
 
   const handleSaveEdit = async () => {
     try {
-      const res = await fetch(`/api/students/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editFormData)
-      });
-      if (res.ok) {
-        alert('Student updated successfully!');
-        handleTabChange('overview');
-        fetchStudentData();
-      } else {
-        alert('Failed to update student.');
+      const { error } = await insforge.database.from('Students').update({
+        Name: editFormData.name,
+        ParentName: editFormData.parentName,
+        ParentWhatsAppNumber: editFormData.parentWhatsApp,
+        ClassID: editFormData.classId,
+        StudentStatus: editFormData.studentStatus,
+        RollNumber: editFormData.rollNumber,
+        Photo: editFormData.photo || null
+      }).eq('StudentID', id);
+      
+      if (error) throw error;
+      
+      await insforge.database.from('StudentSubjects').delete().eq('StudentID', id);
+      if (editFormData.subjects.length > 0) {
+        await insforge.database.from('StudentSubjects').insert(
+          editFormData.subjects.map(s => ({ StudentID: id, SubjectID: s }))
+        );
       }
+
+      alert('Student updated successfully!');
+      handleTabChange('overview');
+      fetchStudentData();
     } catch (err) {
       alert('Error updating student.');
     }
