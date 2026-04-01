@@ -77,7 +77,8 @@ export default function Students() {
         const yy = year.slice(-2);
         
         const classRecord = classes.find(c => c.ClassID === formData.classId);
-        const cc = classRecord ? classRecord.ClassName.replace(/\D/g, '') : formData.classId.replace(/\D/g, '');
+        const classNum = classRecord ? classRecord.ClassName.replace(/\D/g, '') : formData.classId.replace(/\D/g, '');
+        const cc = classNum.padStart(2, '0');
         const prefix = `${yy}A${cc}`;
 
         const { data } = await insforge.database

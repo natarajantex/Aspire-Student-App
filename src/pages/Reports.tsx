@@ -148,7 +148,6 @@ export default function Reports() {
     text += present.map(s => s.Name).join(', ') || 'None';
     text += '\n\n';
     
-    text += `Total: ${attendanceReport.length} | Present: ${present.length} | Absent: ${absent.length}\n\n`;
     text += `- Aspire Academics`;
 
     navigator.clipboard.writeText(text).then(() => {
@@ -174,23 +173,17 @@ export default function Reports() {
     if (chapter) {
       text += `Chapter: ${chapter}\n`;
     }
-    text += `\nTop Scores:\n`;
-    validScores.slice(0, 3).forEach(s => {
-      text += `${s.Name} - ${s.MarksObtained}/${s.TotalMarks}\n`;
+    text += `\nResults:\n`;
+    testReport.forEach(s => {
+      if (s.IsAbsent) {
+        text += `${s.Name} - Absent\n`;
+      } else if (s.MarksObtained !== null) {
+        text += `${s.Name} - ${s.MarksObtained}/${s.TotalMarks}\n`;
+      } else {
+        text += `${s.Name} - Not Marked\n`;
+      }
     });
     text += '\n';
-    
-    const absentStudents = testReport.filter(s => s.IsAbsent);
-    if (absentStudents.length > 0) {
-      text += `Absent:\n`;
-      text += absentStudents.map(s => s.Name).join(', ') + '\n\n';
-    }
-
-    const notMarked = testReport.filter(s => s.MarksObtained === null && !s.IsAbsent);
-    if (notMarked.length > 0) {
-      text += `Not Marked:\n`;
-      text += notMarked.map(s => s.Name).join(', ') + '\n\n';
-    }
 
     text += `Class Average: ${avgScore}\n\n`;
     text += `- Aspire Academics`;
@@ -341,20 +334,7 @@ export default function Reports() {
                 </div>
               </div>
 
-              <div className="bg-gray-50 p-4 rounded-xl flex justify-between items-center mt-4">
-                <div className="text-center">
-                  <p className="text-xs text-gray-500 uppercase">Total</p>
-                  <p className="text-lg font-bold text-gray-900">{attendanceReport.length}</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-xs text-gray-500 uppercase">Present</p>
-                  <p className="text-lg font-bold text-emerald-600">{attendanceReport.filter(s => s.Status === 'Present').length}</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-xs text-gray-500 uppercase">Absent</p>
-                  <p className="text-lg font-bold text-rose-600">{attendanceReport.filter(s => s.Status === 'Absent').length}</p>
-                </div>
-              </div>
+
             </div>
           </div>
         </div>
