@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { insforge } from '../lib/insforge';
 import { Shield, Lock, Phone } from 'lucide-react';
 
 export default function ParentLogin() {
@@ -26,23 +27,64 @@ export default function ParentLogin() {
     setLoading(true);
 
     try {
-      const payload = { mobileNumber: mobileNumber.trim(), password: password.trim() };
+      const mobile = mobileNumber.trim();
+      const pwd = password.trim();
 
-      const res = await fetch('/api/auth/login/parent', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      const data = await res.json();
-
-      if (res.ok) {
-        login(data.user, data.token);
-        navigate('/');
-      } else {
-        setError(data.error || 'Login failed');
+      if (!mobile || !pwd) {
+        setError('Please enter mobile number and password.');
+        setLoading(false);
+        return;
       }
+
+      // Query the Parents table directly via InsForge SDK
+      const { data: parents, error: dbError } = await insforge.database
+        .from('Parents')
+        .select('*, Students(Name, StudentStatus)')
+        .eq('MobileNumber', mobile)
+        .eq('Status', 'Active');
+
+      if (dbError) {
+        console.error('DB Error:', dbError);
+        setError('Login failed. Please try again.');
+        setLoading(false);
+        return;
+      }
+
+      if (!parents || parents.length === 0) {
+        setError('Invalid mobile number or account not found.');
+        setLoading(false);
+        return;
+      }
+
+      const parent = parents[0];
+
+      // Verify the password
+      if (parent.Password !== pwd) {
+        setError('Invalid password.');
+        setLoading(false);
+        return;
+      }
+
+      // Check if the linked student is active
+      const student = Array.isArray(parent.Students) ? parent.Students[0] : parent.Students;
+      if (!student || student.StudentStatus !== 'Active') {
+        setError('Your student account is no longer active. Please contact the institute.');
+        setLoading(false);
+        return;
+      }
+
+      // Build user object and login
+      const userData = {
+        id: parent.ParentID,
+        name: parent.ParentName,
+        role: 'parent' as const,
+        studentId: parent.StudentID,
+      };
+
+      login(userData, `parent-${parent.ParentID}`);
+      navigate('/');
     } catch (err) {
+      console.error('Login error:', err);
       setError('Network error. Please try again.');
     } finally {
       setLoading(false);
@@ -122,7 +164,6 @@ export default function ParentLogin() {
           <div className="mt-6 text-center text-xs text-gray-500">
             <p>Username: 10-digit mobile number</p>
             <p>Password: Last 5 digits of mobile number</p>
-            <p className="mt-1 text-gray-400">Demo: 9876543210 / 43210</p>
           </div>
         </div>
       </div>

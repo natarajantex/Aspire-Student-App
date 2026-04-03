@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { insforge } from '../lib/insforge';
 import { Shield, User, Lock } from 'lucide-react';
 
 export default function StaffLogin() {
@@ -26,23 +27,55 @@ export default function StaffLogin() {
     setLoading(true);
 
     try {
-      const payload = { email: email.trim(), password: password.trim() };
+      const emailVal = email.trim();
+      const pwd = password.trim();
 
-      const res = await fetch('/api/auth/login/staff', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      const data = await res.json();
-
-      if (res.ok) {
-        login(data.user, data.token);
-        navigate('/');
-      } else {
-        setError(data.error || 'Login failed');
+      if (!emailVal || !pwd) {
+        setError('Please enter email and password.');
+        setLoading(false);
+        return;
       }
+
+      // Query the Users table directly via InsForge SDK
+      const { data: users, error: dbError } = await insforge.database
+        .from('Users')
+        .select('*')
+        .eq('Email', emailVal)
+        .eq('Status', 'Active');
+
+      if (dbError) {
+        console.error('DB Error:', dbError);
+        setError('Login failed. Please try again.');
+        setLoading(false);
+        return;
+      }
+
+      if (!users || users.length === 0) {
+        setError('Invalid email or account not found.');
+        setLoading(false);
+        return;
+      }
+
+      const user = users[0];
+
+      // Verify the password
+      if (user.Password !== pwd) {
+        setError('Invalid password.');
+        setLoading(false);
+        return;
+      }
+
+      // Build user object and login
+      const userData = {
+        id: user.UserID,
+        name: user.Name,
+        role: 'admin' as const,
+      };
+
+      login(userData, `staff-${user.UserID}`);
+      navigate('/');
     } catch (err) {
+      console.error('Login error:', err);
       setError('Network error. Please try again.');
     } finally {
       setLoading(false);
@@ -118,10 +151,6 @@ export default function StaffLogin() {
               </button>
             </div>
           </form>
-          
-          <div className="mt-6 text-center text-xs text-gray-500">
-            <p>Demo Staff: admin@aspire.com / password123</p>
-          </div>
         </div>
       </div>
     </div>
