@@ -90,10 +90,12 @@ export default function Attendance() {
 
     try {
       if (dataToSave.length > 0) {
-        for (const record of dataToSave) {
-           await insforge.database.from('Attendance').delete()
-             .eq('Date', record.Date).eq('SubjectID', record.SubjectID).eq('StudentID', record.StudentID);
-        }
+        // Single bulk delete instead of looping per student
+        const studentIds = dataToSave.map(r => r.StudentID);
+        await insforge.database.from('Attendance').delete()
+          .eq('Date', date)
+          .eq('SubjectID', selectedSubject)
+          .in('StudentID', studentIds);
         
         const { error } = await insforge.database.from('Attendance').insert(dataToSave);
         if (error) throw error;
