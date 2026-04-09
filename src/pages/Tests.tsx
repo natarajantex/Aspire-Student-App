@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Calendar, Save, FileText, BookOpen } from 'lucide-react';
+import { Calendar, Save, FileText, BookOpen, Copy } from 'lucide-react';
 import { format } from 'date-fns';
 import { insforge } from '../lib/insforge';
 
@@ -128,6 +128,31 @@ export default function Tests() {
     }
   };
 
+  const handleCopyTestReport = () => {
+    const subjectRecord = subjects.find(s => s.SubjectID === selectedSubject);
+    const subjectName = subjectRecord?.SubjectName || 'Unknown Subject';
+    const className = subjectRecord?.ClassName || 'Unknown Class';
+    
+    let report = `*Test Report*\nDate: ${format(new Date(date), 'dd/MM/yyyy')}\nClass: ${className}\nSubject: ${subjectName}\nChapter: ${chapter || 'N/A'}\nTotal Marks: ${globalTotalMarks || 100}\n\n*Results:*\n`;
+    
+    students.forEach((s, idx) => {
+      const marks = testMarks[s.StudentID];
+      let scoreText = '';
+      if (marks?.isAbsent) {
+        scoreText = 'Absent';
+      } else {
+        scoreText = marks?.obtained ? `${marks.obtained}/${globalTotalMarks || 100}` : 'Not entered';
+      }
+      report += `${idx + 1}. ${s.Name}: ${scoreText}\n`;
+    });
+
+    navigator.clipboard.writeText(report).then(() => {
+      alert("Test report copied to clipboard!");
+    }).catch(err => {
+      alert("Failed to copy text: " + err);
+    });
+  };
+
   return (
     <div className="max-w-md mx-auto space-y-6">
       <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 space-y-4">
@@ -198,7 +223,13 @@ export default function Tests() {
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 flex justify-between items-center bg-gray-50">
           <h3 className="text-sm font-medium text-gray-700">Enter Marks ({students.length})</h3>
-          <div className="text-xs text-gray-500">Marks / Status</div>
+          <button
+            onClick={handleCopyTestReport}
+            className="flex items-center text-xs font-medium text-indigo-600 hover:text-indigo-800 bg-indigo-50 px-2 py-1 rounded transition-colors"
+            title="Copy test report"
+          >
+            <Copy className="w-3 h-3 mr-1" /> Copy Report
+          </button>
         </div>
         
         <ul className="divide-y divide-gray-100">

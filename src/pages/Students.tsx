@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Search, Filter, Plus, X, UserPlus } from 'lucide-react';
+import { Search, Filter, Plus, X, UserPlus, Download } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { insforge } from '../lib/insforge';
 
@@ -211,6 +211,80 @@ export default function Students() {
       fetchStudents();
     } catch (err: any) {
       alert('Error enrolling student: ' + err.message);
+    }
+  };
+
+  const handleDownloadPDF = async (e: React.MouseEvent, student: any) => {
+    e.stopPropagation();
+    
+    try {
+      const { jsPDF } = await import('jspdf');
+      const doc = new jsPDF();
+      
+      doc.setFontSize(20);
+      doc.text('Student Report', 105, 20, { align: 'center' });
+      
+      doc.setFontSize(12);
+      doc.text(`Name: ${student.Name}`, 20, 40);
+      doc.text(`Roll Number: ${student.RollNumber || student.StudentID}`, 20, 48);
+      doc.text(`Class: ${student.ClassName}`, 20, 56);
+      doc.text(`Academic Year: ${student.AcademicYear}`, 20, 64);
+      doc.text(`Status: ${student.StudentStatus}`, 20, 72);
+      
+      const enrolledSubjects = student.EnrolledSubjects || 'None';
+      const splitSubjects = doc.splitTextToSize(`Subjects: ${enrolledSubjects}`, 170);
+      doc.text(splitSubjects, 20, 80);
+      
+      const { data: attendanceData } = await insforge.database
+        .from('Attendance')
+        .select('Date, Status, Subjects(SubjectName)')
+        .eq('StudentID', student.StudentID)
+        .order('Date', { ascending: false })
+        .limit(10);
+        
+      const { data: testData } = await insforge.database
+        .from('Tests')
+        .select('Date, MarksObtained, TotalMarks, IsAbsent, Chapter, Subjects(SubjectName)')
+        .eq('StudentID', student.StudentID)
+        .order('Date', { ascending: false })
+        .limit(10);
+      
+      let y = 96 + (splitSubjects.length - 1) * 6;
+      doc.setFontSize(14);
+      doc.text('Recent Attendance (Last 10)', 20, y);
+      
+      y += 10;
+      doc.setFontSize(10);
+      if (attendanceData && attendanceData.length > 0) {
+        attendanceData.forEach((a: any) => {
+          doc.text(`- ${a.Date} | ${a.Subjects?.SubjectName || 'Unknown'} | ${a.Status}`, 20, y);
+          y += 6;
+        });
+      } else {
+        doc.text('No attendance records found.', 20, y);
+        y += 6;
+      }
+      
+      y += 10;
+      doc.setFontSize(14);
+      doc.text('Recent Tests (Last 10)', 20, y);
+      
+      y += 10;
+      doc.setFontSize(10);
+      if (testData && testData.length > 0) {
+        testData.forEach((t: any) => {
+          const score = t.IsAbsent === 1 ? 'Absent' : `${t.MarksObtained}/${t.TotalMarks}`;
+          doc.text(`- ${t.Date} | ${t.Subjects?.SubjectName || 'Unknown'} | ${t.Chapter || ''} | ${score}`, 20, y);
+          y += 6;
+        });
+      } else {
+        doc.text('No test records found.', 20, y);
+      }
+      
+      doc.save(`${student.Name.replace(/\s+/g, '_')}_Report.pdf`);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to generate PDF report');
     }
   };
 
@@ -481,8 +555,17 @@ export default function Students() {
                   </div>
                 </div>
                 
-                <div className="text-sm text-gray-600 space-y-1 mt-3">
-                  <p><span className="font-medium text-gray-500">Subjects:</span> {student.EnrolledSubjects || 'None'}</p>
+                <div className="flex justify-between items-center mt-3">
+                  <div className="text-sm text-gray-600 line-clamp-1 flex-1">
+                    <p><span className="font-medium text-gray-500">Subjects:</span> {student.EnrolledSubjects || 'None'}</p>
+                  </div>
+                  <button
+                    onClick={(e) => handleDownloadPDF(e, student)}
+                    className="ml-2 flex items-center shrink-0 text-xs font-medium text-indigo-600 hover:text-indigo-800 bg-indigo-50 px-3 py-1.5 rounded-lg transition-colors border border-indigo-100"
+                    title="Download Report (PDF)"
+                  >
+                    <Download className="w-3 h-3 mr-1" /> PDF Report
+                  </button>
                 </div>
               </div>
             ))}

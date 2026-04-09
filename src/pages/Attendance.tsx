@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Calendar, Save, CheckCircle2, XCircle, MessageCircle } from 'lucide-react';
+import { Calendar, Save, CheckCircle2, XCircle, MessageCircle, Copy } from 'lucide-react';
 import { format } from 'date-fns';
 import { insforge } from '../lib/insforge';
 
@@ -114,6 +114,30 @@ export default function Attendance() {
     window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
+  const handleCopyAbsentReport = () => {
+    const subjectRecord = subjects.find(s => s.SubjectID === selectedSubject);
+    const subjectName = subjectRecord?.SubjectName || 'Unknown Subject';
+    const className = subjectRecord?.ClassName || 'Unknown Class';
+    
+    const absentees = students.filter(s => attendance[s.StudentID] !== 'Present');
+    
+    let report = `*Attendance Report*\nDate: ${format(new Date(date), 'dd/MM/yyyy')}\nClass: ${className}\nSubject: ${subjectName}\n\n*Absentees:*\n`;
+    
+    if (absentees.length === 0) {
+      report += 'None (100% Attendance)\n';
+    } else {
+      absentees.forEach((s, idx) => {
+        report += `${idx + 1}. ${s.Name}\n`;
+      });
+    }
+
+    navigator.clipboard.writeText(report).then(() => {
+      alert("Absentee report copied to clipboard!");
+    }).catch(err => {
+      alert("Failed to copy text: " + err);
+    });
+  };
+
   return (
     <div className="max-w-md mx-auto space-y-6">
       <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 space-y-4">
@@ -159,7 +183,13 @@ export default function Attendance() {
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 flex justify-between items-center bg-gray-50">
           <h3 className="text-sm font-medium text-gray-700">Students ({students.length})</h3>
-          <div className="text-xs text-gray-500">Tap to toggle</div>
+          <button
+            onClick={handleCopyAbsentReport}
+            className="flex items-center text-xs font-medium text-indigo-600 hover:text-indigo-800 bg-indigo-50 px-2 py-1 rounded transition-colors"
+            title="Copy absentee report"
+          >
+            <Copy className="w-3 h-3 mr-1" /> Copy Report
+          </button>
         </div>
         
         <ul className="divide-y divide-gray-100">
